@@ -1,2 +1,5 @@
 SQLAlchemy==1.2.9
 alembic==1.4.2
+Flask==1.1.2
+Flask-SQLAlchemy==2.4.1
+flask-marshmallow==0.12.0
