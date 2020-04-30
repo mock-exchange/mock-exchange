@@ -42,3 +42,12 @@ class Tx(Base):
     price = Column(Integer)
     amount = Column(Integer)
 
+class OrderBook(Base):
+    __tablename__ = 'order_book'
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer)
+    price = Column(Integer)
+    amount = Column(Integer)
+    test = Column(Integer)
+
