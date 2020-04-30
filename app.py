@@ -40,11 +40,11 @@ class Main():
 
     def __init__(self):
 
-        conn = sqlite3.connect('test.db')
+        conn = sqlite3.connect('me.db')
         conn.row_factory = dict_factory
         db = conn.cursor()
 
-        engine = create_engine('sqlite:///test.db')
+        engine = create_engine('sqlite:///me.db')
         self.session = Session(engine)
 
         parser = argparse.ArgumentParser(description='Match engine')
@@ -77,7 +77,7 @@ class Main():
     
     def cmd_initdb(self):
         print('Setup db.. ', end='')
-        engine = create_engine('sqlite:///test.db')
+        engine = create_engine('sqlite:///me.db')
         model.Base.metadata.create_all(engine)
         session = Session(engine)
         print('done')
