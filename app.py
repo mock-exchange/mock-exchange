@@ -50,25 +50,6 @@ class TransactionSchema(Schema):
 def index():
     return 'Mock Exchange'
 
-@app.route("/api/accounts/", methods=["POST"])
-def new_account():
-    json_data = request.get_json()
-    if not json_data:
-        return {"message": "No input data provided"}, 400
-    # Validate and deserialize input
-    try:
-        data = account_schema.load(json_data)
-    except ValidationError as err:
-        return err.messages, 422
-    account = Account(
-        name=data["name"]
-    )
-    db.session.add(account)
-    db.session.commit()
-    new_account = db.session.query(Account).get(account.id)
-    result = account_schema.dump(new_account)
-    return {"message": "Created new quote.", "account": result}
-
 ENTITY = {
     'account': Account,
     'asset'  : Asset,
@@ -100,6 +81,31 @@ def get_entity(entity, pk=None):
         result = EntitySchema(many=True).dump(rows)
 
     return jsonify(result)
+
+@app.route("/api/<string:entity>", methods=["POST"])
+def new_entity(entity):
+    if entity not in ENTITY.keys():
+        return {"message": "No such entity"}, 400
+
+    Entity = ENTITY[entity]
+    EntitySchema = ENTITY_SCHEMA[entity]
+
+    json_data = request.get_json()
+    if not json_data:
+        return {"message": "No input data provided"}, 400
+    # Validate and deserialize input
+    try:
+        data = EntitySchema().load(json_data)
+    except ValidationError as err:
+        return err.messages, 422
+    new_entity = Entity(
+        name=data["name"]
+    )
+    db.session.add(new_entity)
+    db.session.commit()
+    entity_out = db.session.query(Entity).get(new_entity.id)
+    result = EntitySchema().dump(entity_out)
+    return {"message": "Created new " + entity + ".", entity: result}
 
 
 if __name__ == '__main__':
