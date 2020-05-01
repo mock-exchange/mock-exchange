@@ -33,3 +33,7 @@ $ alembic current
 $ alembic upgrade head
 ```
 
+Add new changes
+```
+$ alembic revision --autogenerate -m 'message'
+```

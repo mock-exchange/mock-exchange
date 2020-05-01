@@ -27,27 +27,35 @@ class Account(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=True)
 
+class Asset(Base):
+    __tablename__ = 'asset'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), nullable=True)
+
 class Market(Base):
     __tablename__ = 'market'
 
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=True)
+    asset1 = Column(Integer) # fk Asset
+    asset2 = Column(Integer) # fk Asset
 
-class Tx(Base):
-    __tablename__ = 'tx'
+class Order(Base):
+    __tablename__ = 'order'
 
     id = Column(Integer, primary_key=True)
-    src_account_id = Column(Integer)
-    dst_account_id = Column(Integer)
+    account = Column(Integer) # fk Account
     price = Column(Integer)
     amount = Column(Integer)
 
-class OrderBook(Base):
-    __tablename__ = 'order_book'
+class Transaction(Base):
+    __tablename__ = 'transaction'
 
     id = Column(Integer, primary_key=True)
-    account_id = Column(Integer)
+    account1 = Column(Integer) # fk Account
+    account2 = Column(Integer) # fk Account
     price = Column(Integer)
     amount = Column(Integer)
-    test = Column(Integer)
+
 
