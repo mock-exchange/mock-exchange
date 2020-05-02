@@ -95,17 +95,29 @@ class Main():
             where = []
 
             # status IN (open, partial)
-            # AND direction == opposite
-            
+
+            # if direction == 'sell'
+            #   AND direction == 'buy'
+            #   AND price >= this.price -- not lt our limit
+
+            # elif direction == 'buy'
+            #   AND direction == 'sell'
+            #   AND price <= this.price -- not gt our limit
+
             # ORDER BY
             #   PRICE ASC,
             #   ID ASC -- FIFO
 
             where.append(model.Order.status.in_(['open','partial']))
 
-            newdir = 'sell' if o.direction == 'buy' else 'buy'
-            where.append(model.Order.direction==newdir)
+            if o.direction == 'sell':
+                where.append(model.Order.direction == 'buy')
+                where.append(model.Order.price >= o.price)
+            elif o.direction == 'buy':
+                where.append(model.Order.direction == 'sell')
+                where.append(model.Order.price <= o.price)
 
+            # This query returns book matches, so start slicing thru them
             q2 = self.session.query(
                 model.Order
             ).filter(
@@ -115,8 +127,26 @@ class Main():
                 model.Order.id.asc()
             )
             for o2 in q2.all():
-                print("  ? %05d %8s %-4s %10d %10d" % (
+                print("  > %05d %8s %-4s %10d %10d" % (
                 o2.id, o2.type, o2.direction, o2.amount, o2.price))
+
+                # If amount >= this.amount:
+                #   do stuff..
+                #   create tx for this.amount
+                # 4 of these
+                if o2.price >= o.amount:
+                    tx_amt = o2.amount
+                    xx = model.TransactionItem(
+                        account=1,
+                        amount=tx_amt,
+                        order=o2.id
+                    )
+                    print(xx)
+                    # then update remaining order amount
+                    o2.amount = o2.amount - tx_amt
+                    print("  X %05d %8s %-4s %10d %10d" % (
+                    o2.id, o2.type, o2.direction, o2.amount, o2.price))
+                    print()
 
             # If no matches, add to book (by changing status to open)
             #o.status = 'open'
