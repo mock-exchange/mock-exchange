@@ -34,8 +34,14 @@ class MarketSchema(Schema):
 
 class OrderSchema(Schema):
     id = fields.Int(dump_only=True)
-    price = fields.Int()
-    amount = fields.Int()
+    owner = fields.Int(required=True)
+    market = fields.Int(required=True)
+    direction = fields.Str(required=True)
+    type = fields.Str()
+    price = fields.Int(required=True)
+    amount = fields.Int(required=True)
+    balance = fields.Int()
+    status = fields.Str(dump_only=True)
 
 class TransactionSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -53,13 +59,15 @@ def index():
 ENTITY = {
     'account': Account,
     'asset'  : Asset,
-    'market' : Market
+    'market' : Market,
+    'order'  : Order
 }
 
 ENTITY_SCHEMA = {
     'account': AccountSchema,
     'asset'  : AssetSchema,
-    'market' : MarketSchema
+    'market' : MarketSchema,
+    'order'  : OrderSchema
 }
 
 @app.route('/api/<string:entity>', methods=["GET"])
@@ -99,7 +107,7 @@ def new_entity(entity):
     except ValidationError as err:
         return err.messages, 422
     new_entity = Entity(
-        name=data["name"]
+        **data
     )
     db.session.add(new_entity)
     db.session.commit()
