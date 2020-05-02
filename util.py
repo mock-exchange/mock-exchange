@@ -3,7 +3,7 @@
 import argparse
 import csv
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import Session
 
 import model
@@ -26,7 +26,8 @@ class Main():
 
         parser = argparse.ArgumentParser(description='Import utility')
         parser.add_argument("action", choices=[
-            'import', 'export'
+            'import', 'export',
+            'ordproc'
         ], help="Action")
 
         self.args = parser.parse_args()
@@ -71,7 +72,55 @@ class Main():
                 self.session.commit()
                 print(cnt, 'rows imported')
 
+    def cmd_ordproc(self):
+        print('Process orders..')
 
+        # 1. Foreach order with new status
+        #   a. For limit
+        #       A. Foreach order where()  orderby(price)
+        #  opposite direction (buy vs sell)
+        #  and price <=> our price
+
+        q = self.session.query(
+            model.Order
+        ).filter_by(
+            status='new'
+        ).order_by(model.Order.id)
+
+        for o in q.all():
+            print("--- %05d %8s %-4s %10d %10d" % (
+            o.id, o.type, o.direction, o.amount, o.price))
+            
+            # Where
+            where = []
+
+            # status IN (open, partial)
+            # AND direction == opposite
+            
+            # ORDER BY
+            #   PRICE ASC,
+            #   ID ASC -- FIFO
+
+            where.append(model.Order.status.in_(['open','partial']))
+
+            newdir = 'sell' if o.direction == 'buy' else 'buy'
+            where.append(model.Order.direction==newdir)
+
+            q2 = self.session.query(
+                model.Order
+            ).filter(
+                and_(*where)
+            ).order_by(
+                model.Order.price.asc(),
+                model.Order.id.asc()
+            )
+            for o2 in q2.all():
+                print("  ? %05d %8s %-4s %10d %10d" % (
+                o2.id, o2.type, o2.direction, o2.amount, o2.price))
+
+            # If no matches, add to book (by changing status to open)
+            #o.status = 'open'
+            #self.session.commit()
 
 if __name__ == '__main__':
     Main()
