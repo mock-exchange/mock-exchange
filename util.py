@@ -21,13 +21,13 @@ class Main():
 
     def __init__(self):
 
-        engine = create_engine('sqlite:///me.db')
-        self.session = Session(engine)
+        self.engine = create_engine('sqlite:///me.db')
+        self.session = Session(self.engine)
 
         parser = argparse.ArgumentParser(description='Import utility')
         parser.add_argument("action", choices=[
             'import', 'export',
-            'ordproc'
+            'ordproc', 'randbook'
         ], help="Action")
 
         self.args = parser.parse_args()
@@ -72,6 +72,13 @@ class Main():
                 self.session.commit()
                 print(cnt, 'rows imported')
 
+    def cmd__randbook(self):
+        market = 1
+        market_rate = 8800
+
+        pass
+
+
     def cmd_ordproc(self):
         print('Process orders..')
 
@@ -88,12 +95,12 @@ class Main():
         ).order_by(model.Order.id)
 
         for o in q.all():
-            print("--- %05d %8s %-4s %10d %10d" % (
-            o.id, o.type, o.direction, o.amount, o.price))
+            print("--- %05d %8s %8s %-4s %10d %10d" % (
+            o.id, o.type, o.status, o.direction, o.amount_left, o.price))
             
             # Where
             where = []
-
+            order = []
             # status IN (open, partial)
 
             # if direction == 'sell'
@@ -113,9 +120,16 @@ class Main():
             if o.direction == 'sell':
                 where.append(model.Order.direction == 'buy')
                 where.append(model.Order.price >= o.price)
+
+                order.append(model.Order.price.desc())
+                order.append(model.Order.id.asc())
+
             elif o.direction == 'buy':
                 where.append(model.Order.direction == 'sell')
                 where.append(model.Order.price <= o.price)
+
+                order.append(model.Order.price.asc())
+                order.append(model.Order.id.asc())
 
             # This query returns book matches, so start slicing thru them
             q2 = self.session.query(
@@ -123,34 +137,52 @@ class Main():
             ).filter(
                 and_(*where)
             ).order_by(
-                model.Order.price.asc(),
-                model.Order.id.asc()
+                *order
             )
+            demand = o.amount_left
             for o2 in q2.all():
-                print("  > %05d %8s %-4s %10d %10d" % (
-                o2.id, o2.type, o2.direction, o2.amount, o2.price))
+                print("  > %05d %8s %8s %-4s %10d %10d [ %10d ]" % (
+                o2.id, o2.type, o2.status, o2.direction, o2.amount_left, o2.price, demand))
+                # demand 3
+                # has 2: tx for 2, 3-2, 1 demand left
+                # has 12: tx for 1, 1-1, 0 demand left
+                
+                # tx is up to demand amt
+                if not demand:
+                    break
+                
+                tx_amt = o2.amount_left if demand > o2.amount_left else demand
+                demand -= tx_amt
+                xx = model.TransactionItem(
+                    account=1,
+                    amount=tx_amt,
+                    order=o2.id
+                )
+                print(xx.__dict__)
+                self.session.add(xx)
+                # then update remaining order amount
+                o2.amount_left = o2.amount_left - tx_amt
+                o2.status = self.get_status(o2)
+                print("  X %05d %8s %8s %-4s %10d %10d [ %10d ]" % (
+                o2.id, o2.type, o2.status, o2.direction, o2.amount_left, o2.price, demand))
+                print()
+            
+            o.amount_left = demand
+            o.status = self.get_status(o)
 
-                # If amount >= this.amount:
-                #   do stuff..
-                #   create tx for this.amount
-                # 4 of these
-                if o2.price >= o.amount:
-                    tx_amt = o2.amount
-                    xx = model.TransactionItem(
-                        account=1,
-                        amount=tx_amt,
-                        order=o2.id
-                    )
-                    print(xx)
-                    # then update remaining order amount
-                    o2.amount = o2.amount - tx_amt
-                    print("  X %05d %8s %-4s %10d %10d" % (
-                    o2.id, o2.type, o2.direction, o2.amount, o2.price))
-                    print()
+            print("-d- %05d %8s %8s %-4s %10d %10d" % (
+            o.id, o.type, o.status, o.direction, o.amount_left, o.price))
+ 
+            self.session.commit()
 
-            # If no matches, add to book (by changing status to open)
-            #o.status = 'open'
-            #self.session.commit()
+    def get_status(self, obj):
+        if obj.amount_left == 0:
+            return 'closed'
+        elif obj.amount_left != obj.amount:
+            return 'partial'
+        else:
+            return 'open'
+
 
 if __name__ == '__main__':
     Main()

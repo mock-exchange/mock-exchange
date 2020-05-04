@@ -59,9 +59,10 @@ class Order(Base): # tx data; Cancel only
     type = Column(String(16), default='limit') # limit, market
     price = Column(Integer) # when market, no price
     amount = Column(Integer)
+    amount_left = Column(Integer)
     balance = Column(Integer)
     status = Column(String(16), default='new')
-    # new, open, partial, done, cancel
+    # new, open, partial, close, cancel
     # open, partial orders should be deducted from balance. It is reserved
 
 class Transaction(Base): # tx data; Append only

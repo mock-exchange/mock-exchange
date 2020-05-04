@@ -40,6 +40,7 @@ class OrderSchema(Schema):
     type = fields.Str()
     price = fields.Int(required=True)
     amount = fields.Int(required=True)
+    amount_left = fields.Int(required=True)
     balance = fields.Int()
     status = fields.Str(dump_only=True)
 
