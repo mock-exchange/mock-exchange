@@ -49,6 +49,7 @@ class Account(Base):
     name = Column(String(255), nullable=True)
     owner = Column(Integer) # fk Owner
     asset = Column(Integer) # fk Asset
+    balance = Column(Integer)
     # amount - sum transaction table
 
 class Order(Base): # tx data; Cancel only

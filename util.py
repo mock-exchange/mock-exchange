@@ -2,6 +2,9 @@
 
 import argparse
 import csv
+import numpy as np
+import math
+import random
 
 from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import Session
@@ -78,17 +81,76 @@ class Main():
                 print(cnt, 'rows imported')
 
     def cmd_randbook(self):
-        owners = 3
-        
         market = 1
         market_rate = 8800
 
-        for i in range(owners):
-            a = model.Owner()
-            self.session.add(a)
-            print(a.id)
+        owner = []
+        owner_idx = {}
+        for o in self.session.query(model.Owner).all():
+            owner_idx[o.id] = o.name
+            owner.append(o.id)
+
+        assets = {
+            'usd': {
+                'issue': 100000000,
+                'id': 1
+            },
+            'btc': {
+                'issue': 50000,
+                'id': 2
+            }
+        }
+
+        """
+        # Delete first
+        self.session.query(model.Account).delete()
+        self.session.commit()
+
+        # Create accounts for all owners.
+        # Set initial balance from pareto distribution of issue amount.
+        shape = 5
+        size = len(owner)
+        dist = np.random.pareto(shape, size)
+
+        dist_sum = sum(dist)
+        for i, d in enumerate(dist):
+            dist_rate =  d / dist_sum
+            
+            for asset in assets.keys():
+                bal = assets[asset]['issue'] * dist_rate
+                bal = math.ceil(bal)
+                idx = assets[asset]['id']
+                a = model.Account(owner=owner[i], asset=idx, balance=bal)
+                self.session.add(a)
 
         self.session.commit()
+        """
+        
+        # Create orders
+
+        q = self.session.query(model.Account)
+        for r in q.filter(model.Account.asset==1):
+            print(r.__dict__)
+            #price = random.randrange(8801,9200)
+            price = random.randrange(8400,8800)
+            amt = r.balance / price 
+            o = model.Order(
+                market=1,
+                owner=r.owner,
+                price=price,
+                #direction="sell",
+                direction="buy",
+                #amount=r.balance,
+                #amount_left=r.balance
+                amount=amt,
+                amount_left=amt
+            )
+            print(o.__dict__)
+            break
+            #self.session.add(o)
+
+
+        #self.session.commit()
 
 
     def cmd_ordproc(self):
@@ -198,5 +260,7 @@ class Main():
 
 if __name__ == '__main__':
     Main()
+
+
 
 
