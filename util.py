@@ -10,7 +10,8 @@ import model
 
 ENTITY = {
     'asset': model.Asset,
-    'market': model.Market
+    'market': model.Market,
+    'owner': model.Owner
 }
 
 DATA_DIR = 'data'
@@ -30,12 +31,15 @@ class Main():
             'ordproc', 'randbook'
         ], help="Action")
 
-        self.args = parser.parse_args()
+        parser.add_argument("--entity",  help="entity")
 
+        self.args = parser.parse_args()
+        #print(self.args)
         getattr(self, 'cmd_' + self.args.action)()
     
     def cmd_export(self):
-        for e in ENTITY.keys():
+        ser = ENTITY.keys() if 'all' == self.args.entity else [self.args.entity]
+        for e in ser:
             print('Export',e,'.. ', end='')
             Entity = ENTITY[e]
             q = self.session.query(Entity)
@@ -54,7 +58,8 @@ class Main():
 
 
     def cmd_import(self):
-        for e in ENTITY.keys():
+        ser = ENTITY.keys() if 'all' == self.args.entity else [self.args.entity]
+        for e in ser:
             print('Import',e,'.. ', end='')
             Entity = ENTITY[e]
             file = DATA_DIR + '/' + e + '.csv'
@@ -72,11 +77,18 @@ class Main():
                 self.session.commit()
                 print(cnt, 'rows imported')
 
-    def cmd__randbook(self):
+    def cmd_randbook(self):
+        owners = 3
+        
         market = 1
         market_rate = 8800
 
-        pass
+        for i in range(owners):
+            a = model.Owner()
+            self.session.add(a)
+            print(a.id)
+
+        self.session.commit()
 
 
     def cmd_ordproc(self):
