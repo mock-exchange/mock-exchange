@@ -1,8 +1,8 @@
-"""empty message
+"""initial
 
-Revision ID: c58915b73ea4
+Revision ID: f231077a7e9b
 Revises: 
-Create Date: 2020-05-01 20:29:53.818104
+Create Date: 2020-05-05 15:29:47.893985
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'c58915b73ea4'
+revision = 'f231077a7e9b'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -23,11 +23,14 @@ def upgrade():
     sa.Column('name', sa.String(length=255), nullable=True),
     sa.Column('owner', sa.Integer(), nullable=True),
     sa.Column('asset', sa.Integer(), nullable=True),
+    sa.Column('balance', sa.Integer(), nullable=True),
+    sa.Column('created', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('asset',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('name', sa.String(length=255), nullable=True),
+    sa.Column('scale', sa.Integer(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('market',
@@ -45,18 +48,23 @@ def upgrade():
     sa.Column('type', sa.String(length=16), nullable=True),
     sa.Column('price', sa.Integer(), nullable=True),
     sa.Column('amount', sa.Integer(), nullable=True),
+    sa.Column('amount_left', sa.Integer(), nullable=True),
     sa.Column('balance', sa.Integer(), nullable=True),
     sa.Column('status', sa.String(length=16), nullable=True),
+    sa.Column('created', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('owner',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('name', sa.String(length=255), nullable=True),
+    sa.Column('email', sa.String(length=255), nullable=True),
+    sa.Column('title', sa.String(length=255), nullable=True),
+    sa.Column('created', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('transaction',
     sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('datetime', sa.DateTime(), nullable=True),
+    sa.Column('created', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('transaction_item',
@@ -64,7 +72,6 @@ def upgrade():
     sa.Column('transaction', sa.Integer(), nullable=True),
     sa.Column('account', sa.Integer(), nullable=True),
     sa.Column('amount', sa.Integer(), nullable=True),
-    sa.Column('order', sa.Integer(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
     # ### end Alembic commands ###

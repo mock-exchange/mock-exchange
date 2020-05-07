@@ -5,11 +5,14 @@ import csv
 import numpy as np
 import math
 import random
+from datetime import datetime, timedelta
+import sqlite3
 
 from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import Session
 
 import model
+from libs import random_dates
 
 ENTITY = {
     'asset': model.Asset,
@@ -31,7 +34,8 @@ class Main():
         parser = argparse.ArgumentParser(description='Import utility')
         parser.add_argument("action", choices=[
             'import', 'export',
-            'ordproc', 'randbook'
+            'ordproc', 'randbook',
+            'trade', 'test'
         ], help="Action")
 
         parser.add_argument("--entity",  help="entity")
@@ -40,6 +44,31 @@ class Main():
         #print(self.args)
         getattr(self, 'cmd_' + self.args.action)()
     
+    def cmd_test(self):
+        print('test')
+        print('sqlite3.version:',sqlite3.version)
+        print('sqlite3.sqlite_version:',sqlite3.sqlite_version)
+        conn = sqlite3.connect('me.db')
+        c = conn.cursor()
+        sql = """
+        select
+            distinct date(created),
+            first_value(price) over w as open,
+            max(price) over w as high,
+            min(price) over w as low,
+            last_value(price) over w as close,
+            CAST(sum(amount) over w AS INT) as volume
+            from trade
+            window w as (partition by date(created))
+        """
+        print(sql)
+        c.execute(sql)
+        print("%-10s %10s %10s %10s %10s %10s" % (
+        'Date', 'High','Low','Open','Close','Volume'))
+
+        for row in c.fetchall():
+            print("%10s %10.2f %10.2f %10.2f %10.2f %s" % (row))
+
     def cmd_export(self):
         ser = ENTITY.keys() if 'all' == self.args.entity else [self.args.entity]
         for e in ser:
@@ -79,6 +108,42 @@ class Main():
                     cnt += 1
                 self.session.commit()
                 print(cnt, 'rows imported')
+
+    def cmd_trade(self):
+        file = DATA_DIR + '/bitmex_trades_2020-04-01_XBTUSD.csv'
+        with open(file) as csvfile:
+            reader = csv.DictReader(csvfile, **CSV_OPTS)
+
+            # Clean table
+            deleted = self.session.query(model.Trade).delete()
+            self.session.commit()
+
+            start = datetime.utcnow() - timedelta(days=120)
+            dt = start
+            cnt = 0
+            for row in reader:
+                #fuck = int(row['timestamp'])
+                #print(fuck)
+                #fuck = fuck / 1000000
+                #print(fuck)
+                #dt = datetime.utcfromtimestamp(fuck)
+                dt = dt + timedelta(minutes=5)
+                print(dt)
+                price = row['price']
+                amount = int(row['amount']) * .001
+                m = model.Trade(created=dt, price=price, amount=amount)
+                print(m.__dict__)
+                self.session.add(m)
+                cnt += 1
+                if cnt % 1000 == 0:
+                    self.session.commit()
+
+                if cnt > 50000:
+                    break
+                
+            self.session.commit()
+            print(cnt, 'rows imported')
+
 
     def cmd_randbook(self):
         market = 1
@@ -126,31 +191,52 @@ class Main():
         self.session.commit()
         """
         
+        print('random dates:')
+        dates = random_dates(10000)
+        
+        """
+        ass = {}
+        for i in dates:
+            match = 'DUP' if i in ass else ''
+            ass[i] = 1
+            print(i, match)
+        return
+        """
         # Create orders
 
+        # Delete first
+        #self.session.query(model.Order).delete()
+        #self.session.commit()
+
+
         q = self.session.query(model.Account)
+        cnt = 0
         for r in q.filter(model.Account.asset==1):
             print(r.__dict__)
-            #price = random.randrange(8801,9200)
-            price = random.randrange(8400,8800)
-            amt = r.balance / price 
+            price = random.randrange(8801,9200)
+            #price = random.randrange(8400,8800)
+            #amt = r.balance / price 
             o = model.Order(
+                created=dates[cnt],
                 market=1,
                 owner=r.owner,
                 price=price,
-                #direction="sell",
-                direction="buy",
-                #amount=r.balance,
-                #amount_left=r.balance
-                amount=amt,
-                amount_left=amt
+                direction="sell",
+                #direction="buy",
+                amount=r.balance,
+                amount_left=r.balance
+                #amount=amt,
+                #amount_left=amt
             )
             print(o.__dict__)
-            break
-            #self.session.add(o)
+            #break
+            self.session.add(o)
+            if cnt % 100 == 0:
+                print('commit()')
+                self.session.commit()
+            cnt += 1
 
-
-        #self.session.commit()
+        self.session.commit()
 
 
     def cmd_ordproc(self):

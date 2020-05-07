@@ -1,4 +1,4 @@
-id,name
-1,USD
-2,BTC
-3,ETH
+id,name,scale
+1,USD,2
+2,BTC,8
+3,ETH,8

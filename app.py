@@ -10,7 +10,7 @@ from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError, pre_load
 
 from model import (
-    Account, Asset, Market, Order, Transaction
+    Owner, Account, Asset, Market, Order, Transaction
 )
 
 app = Flask(__name__)
@@ -20,9 +20,18 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 
+class OwnerSchema(Schema):
+    id = fields.Int(dump_only=True)
+    name = fields.Str()
+    email = fields.Str()
+    title = fields.Str()
+
 class AccountSchema(Schema):
     id = fields.Int(dump_only=True)
     name = fields.Str()
+    owner = fields.Int()
+    asset = fields.Int()
+    balance = fields.Int()
 
 class AssetSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -58,6 +67,7 @@ def index():
     return 'Mock Exchange'
 
 ENTITY = {
+    'owner'  : Owner,
     'account': Account,
     'asset'  : Asset,
     'market' : Market,
@@ -65,11 +75,37 @@ ENTITY = {
 }
 
 ENTITY_SCHEMA = {
+    'owner'  : OwnerSchema,
     'account': AccountSchema,
     'asset'  : AssetSchema,
     'market' : MarketSchema,
     'order'  : OrderSchema
 }
+
+@app.route('/api/ohlc', methods=["GET"])
+def get_ohlc():
+
+    sql = """
+        select
+            distinct date(created) as time,
+            first_value(price) over w as open,
+            max(price) over w as high,
+            min(price) over w as low,
+            last_value(price) over w as close,
+            CAST(sum(amount) over w AS INT) as value
+        from trade
+        window w as (partition by date(created))
+
+    """
+    q = db.engine.execute(sql)
+
+    result = []
+    for row in q.fetchall():
+        print(row)
+        result.append(dict(row))
+
+    return jsonify(result)
+
 
 @app.route('/api/<string:entity>', methods=["GET"])
 @app.route('/api/<string:entity>/<int:pk>', methods=["GET"])
@@ -82,11 +118,15 @@ def get_entity(entity, pk=None):
 
     result = None
 
+    #print('args:',list(request.args.keys()))
+
     if pk:
         row = db.session.query(Entity).get(pk)
         result = EntitySchema().dump(row)
     else:
-        rows = db.session.query(Entity).all()
+        q = db.session.query(Entity)
+        rows = q.filter_by(**request.args).limit(20)
+        #rows = q.all()
         result = EntitySchema(many=True).dump(rows)
 
     return jsonify(result)
