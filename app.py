@@ -36,6 +36,8 @@ class AccountSchema(Schema):
 class AssetSchema(Schema):
     id = fields.Int(dump_only=True)
     name = fields.Str()
+    symbol = fields.Str()
+    icon = fields.Str()
 
 class MarketSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -94,15 +96,37 @@ def get_ohlc():
             last_value(price) over w as close,
             CAST(sum(amount) over w AS INT) as value
         from trade
+        where market = ?
         window w as (partition by date(created))
 
     """
-    q = db.engine.execute(sql)
+    q = db.engine.execute(sql, (request.args['market'],))
 
     result = []
     for row in q.fetchall():
         print(row)
         result.append(dict(row))
+
+    return jsonify(result)
+
+
+@app.route('/api/owner', methods=["GET"])
+def get_owner():
+
+    Entity = ENTITY['owner']
+    EntitySchema = ENTITY_SCHEMA['owner']
+
+    result = None
+
+    #print('args:',list(request.args.keys()))
+    filters = []
+    if 'q' in request.args:
+        filters.append(Owner.name.like('%' + request.args['q'] + '%'))
+
+    q = db.session.query(Entity)
+    rows = q.filter(*filters).limit(20)
+    #rows = q.all()
+    result = EntitySchema(many=True).dump(rows)
 
     return jsonify(result)
 

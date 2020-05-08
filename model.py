@@ -34,7 +34,9 @@ class Asset(Base):
     __tablename__ = 'asset'
 
     id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=True)
+    symbol = Column(String(10))
+    icon = Column(String(50))
+    name = Column(String(255))
     scale = Column(Integer) # digits behind decimal
 
 class Market(Base):
@@ -87,6 +89,7 @@ class Trade(Base):
     __tablename__ = 'trade'
 
     id = Column(Integer, primary_key=True)
+    market = Column(Integer)
     created = Column(DateTime, default=utcnow)
     price = Column(Integer)
     amount = Column(Integer)

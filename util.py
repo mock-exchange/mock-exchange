@@ -59,6 +59,8 @@ class Main():
             last_value(price) over w as close,
             CAST(sum(amount) over w AS INT) as volume
             from trade
+            where
+                market = 3
             window w as (partition by date(created))
         """
         print(sql)
@@ -115,8 +117,14 @@ class Main():
             reader = csv.DictReader(csvfile, **CSV_OPTS)
 
             # Clean table
-            deleted = self.session.query(model.Trade).delete()
-            self.session.commit()
+            #deleted = self.session.query(model.Trade).delete()
+            #self.session.commit()
+
+            skip = 0
+            for row in reader:
+                skip += 1
+                if skip > 100000:
+                    break
 
             start = datetime.utcnow() - timedelta(days=120)
             dt = start
@@ -129,9 +137,9 @@ class Main():
                 #dt = datetime.utcfromtimestamp(fuck)
                 dt = dt + timedelta(minutes=5)
                 print(dt)
-                price = row['price']
+                price = float(row['price']) - 6000
                 amount = int(row['amount']) * .001
-                m = model.Trade(created=dt, price=price, amount=amount)
+                m = model.Trade(market=3, created=dt, price=price, amount=amount)
                 print(m.__dict__)
                 self.session.add(m)
                 cnt += 1
