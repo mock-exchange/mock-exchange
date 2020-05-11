@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 
+import re
+
 from sqlalchemy import create_engine, and_, or_, dialects, func, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, aliased
 
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -148,8 +150,27 @@ def get_entity(entity, pk=None):
         row = db.session.query(Entity).get(pk)
         result = EntitySchema().dump(row)
     else:
+        args = []
+        valid = Entity.__table__.columns.keys()
+        for raw in request.args:
+            ss = raw.split('__')
+            k = ss[0]
+            oper = None
+            if len(ss) > 1:
+                oper = ss[1]
+
+            if k not in valid:
+                continue
+            col = getattr(Entity, k)
+            val = request.args[raw]
+            if oper == 'in':
+                vals = val.split(',')
+                args.append((col.in_(vals)))
+            else:
+                args.append((col==val))
+    
         q = db.session.query(Entity)
-        rows = q.filter_by(**request.args).limit(20)
+        rows = q.filter(*args).limit(20)
         #rows = q.all()
         result = EntitySchema(many=True).dump(rows)
 
