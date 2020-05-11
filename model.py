@@ -67,6 +67,14 @@ class Account(Base):
     # amount - sum transaction table
     created = Column(DateTime, default=utcnow)
 
+class Event(Base):
+    __tablename__ = 'event'
+
+    id = Column(Integer, primary_key=True)
+    owner = Column(Integer)
+    action = Column(String(10)) # ao(add order), co(cancel order)
+                               # dep wthd
+    payload = Column(Text())
 
 class Order(Base): # tx data; Cancel only
     __tablename__ = 'order'

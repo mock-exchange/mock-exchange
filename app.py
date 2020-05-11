@@ -112,27 +112,6 @@ def get_ohlc():
     return jsonify(result)
 
 
-@app.route('/api/owner', methods=["GET"])
-def get_owner():
-
-    Entity = ENTITY['owner']
-    EntitySchema = ENTITY_SCHEMA['owner']
-
-    result = None
-
-    #print('args:',list(request.args.keys()))
-    filters = []
-    if 'q' in request.args:
-        filters.append(Owner.name.like('%' + request.args['q'] + '%'))
-
-    q = db.session.query(Entity)
-    rows = q.filter(*filters).limit(20)
-    #rows = q.all()
-    result = EntitySchema(many=True).dump(rows)
-
-    return jsonify(result)
-
-
 @app.route('/api/<string:entity>', methods=["GET"])
 @app.route('/api/<string:entity>/<int:pk>', methods=["GET"])
 def get_entity(entity, pk=None):
@@ -166,6 +145,8 @@ def get_entity(entity, pk=None):
             if oper == 'in':
                 vals = val.split(',')
                 args.append((col.in_(vals)))
+            elif oper == 'like':
+                args.append((col.like(val)))
             else:
                 args.append((col==val))
     
