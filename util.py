@@ -14,7 +14,7 @@ from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import Session, joinedload
 
 import model
-from libs import random_dates
+from libs import random_dates, SQL
 
 #import logging
 #logging.basicConfig()
@@ -40,6 +40,7 @@ class Main():
         parser = argparse.ArgumentParser(description='Import utility')
         parser.add_argument("action", choices=[
             'import', 'export',
+            'book',
             'events', 'randbook',
             'trade', 'test',
             'ordertest'
@@ -60,6 +61,19 @@ class Main():
         
         for r in q.filter(model.Order.owner==1):
             print(r.id, r.market.name, r.owner, r.price, r.amount)
+
+    def cmd_book(self):
+        print('book')
+        sql = SQL['book']
+
+        con = self.engine.connect()
+        rs = con.execute(sql, (1,1,))
+        print("%-10s %10s %10s %10s" % (
+        'Side', 'Price','Amount','Total'))
+
+        for row in rs:
+            print("%-10s %10.2f %10.2f %10.2f" % tuple(row))
+
 
     def cmd_test(self):
         print('test')
@@ -353,6 +367,13 @@ class Main():
                 )
                 print(xx.__dict__)
                 self.session.add(xx)
+
+                #yy = model.Trade(
+                #    market=1,
+                #    price=
+                #    amount=
+                #)
+
                 # then update remaining order amount
                 o2.amount_left = o2.amount_left - tx_amt
                 o2.status = self.get_status(o2)

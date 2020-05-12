@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import re
+import json
 
 from sqlalchemy import create_engine, and_, or_, dialects, func, update
 from sqlalchemy.exc import IntegrityError
@@ -12,8 +13,10 @@ from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError, pre_load
 
 from model import (
-    Owner, Account, Asset, Market, Event, Order, Transaction
+    Owner, Account, Asset, Market, Event, Order, Trade, Transaction
 )
+
+from libs import SQL
 
 app = Flask(__name__)
 
@@ -67,6 +70,13 @@ class OrderSchema(Schema):
     status = fields.Str(dump_only=True)
     created = fields.DateTime(dump_only=True)
 
+class TradeSchema(Schema):
+    id = fields.Int(dump_only=True)
+    #market = fields.Int()
+    amount = fields.Int()
+    price = fields.Int()
+    created = fields.DateTime(dump_only=True)
+
 class TransactionSchema(Schema):
     id = fields.Int(dump_only=True)
     name = fields.Str()
@@ -86,7 +96,8 @@ ENTITY = {
     'asset'  : Asset,
     'market' : Market,
     'event'  : Event,
-    'order'  : Order
+    'order'  : Order,
+    'trade'  : Trade
 }
 
 ENTITY_SCHEMA = {
@@ -95,33 +106,43 @@ ENTITY_SCHEMA = {
     'asset'  : AssetSchema,
     'market' : MarketSchema,
     'event'  : EventSchema,
-    'order'  : OrderSchema
+    'order'  : OrderSchema,
+    'trade'  : TradeSchema
 }
 
 @app.route('/api/ohlc', methods=["GET"])
 def get_ohlc():
 
-    sql = """
-        select
-            distinct date(created) as time,
-            first_value(price) over w as open,
-            max(price) over w as high,
-            min(price) over w as low,
-            last_value(price) over w as close,
-            CAST(sum(amount) over w AS INT) as value
-        from trade
-        where market = ?
-        window w as (partition by date(created))
+    market = request.args.get('market')
+    if not market:
+        return {"message": "Market parameter required"}, 400
 
-    """
+    sql = SQL['ohlc']
     q = db.engine.execute(sql, (request.args['market'],))
 
     result = []
     for row in q.fetchall():
-        print(row)
         result.append(dict(row))
 
     return jsonify(result)
+
+
+@app.route('/api/book', methods=["GET"])
+def get_book():
+
+    market = request.args.get('market')
+    if not market:
+        return {"message": "Market parameter required"}, 400
+
+    sql = SQL['book']
+    rs = db.engine.execute(sql, (market, market,))
+
+    result = []
+    for row in rs:
+        result.append(dict(row))
+
+    return jsonify(result)
+
 
 
 @app.route('/api/<string:entity>', methods=["GET"])
@@ -141,7 +162,25 @@ def get_entity(entity, pk=None):
         row = db.session.query(Entity).get(pk)
         result = EntitySchema().dump(row)
     else:
+        order = []
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
         args = []
+
+        if 'order' in request.args:
+            raw = request.args.get('order')
+            ss = raw.split('.')
+            k = ss[0]
+            sortdir = None
+            if len(ss) > 1:
+                sortdir = ss[1]
+            col = getattr(Entity, k)
+            if sortdir == 'asc':
+                order.append(col.asc())
+            else:
+                order.append(col.desc())
+        
+
         valid = Entity.__table__.columns.keys()
         for raw in request.args:
             ss = raw.split('__')
@@ -163,9 +202,15 @@ def get_entity(entity, pk=None):
                 args.append((col==val))
     
         q = db.session.query(Entity)
-        rows = q.filter(*args).limit(20)
+        q = q.filter(*args).order_by(*order)
+        rows = q.paginate(page=page, per_page=per_page).items
         #rows = q.all()
         result = EntitySchema(many=True).dump(rows)
+
+        blob = {
+            'a': request.args,
+            'results': result
+        }
 
     return jsonify(result)
 

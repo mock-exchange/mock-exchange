@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, time
 import numpy as np
 import math
 from random import randrange, randint
+import os
+import re
 
 from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import Session
@@ -18,6 +20,18 @@ ENTITY = {
 DATA_DIR = 'data'
 
 #CSV_OPTS = { 'delimiter': ',', 'quotechar': '"', 'quoting': csv.QUOTE_MINIMAL }
+
+# Let's grab our SQL from outside so it's easier to manage
+#SQL_ROOT = os.path.dirname(app.instance_path) + '/sql/'
+SQL_ROOT = 'sql'
+SQL = {}
+
+for filename in os.listdir(SQL_ROOT):
+  if re.search(r'\.sql$', filename):
+    name = os.path.splitext(filename)[0]
+    with open(SQL_ROOT + '/' + filename) as f:
+      SQL[name] = f.read()
+      f.close()
 
 
 def random_dates(count, start=None, end=None):
