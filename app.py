@@ -12,7 +12,7 @@ from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError, pre_load
 
 from model import (
-    Owner, Account, Asset, Market, Order, Transaction
+    Owner, Account, Asset, Market, Event, Order, Transaction
 )
 
 app = Flask(__name__)
@@ -45,10 +45,19 @@ class MarketSchema(Schema):
     id = fields.Int(dump_only=True)
     name = fields.Str()
 
+class EventSchema(Schema):
+    id = fields.Int(dump_only=True)
+    owner = fields.Int()
+    action = fields.Str()
+    payload = fields.Str()
+
 class OrderSchema(Schema):
     id = fields.Int(dump_only=True)
     owner = fields.Int(required=True)
-    market = fields.Int(required=True)
+
+    #market = fields.Int(required=True)
+    market = fields.Nested("MarketSchema", only=("id", "name"))
+
     direction = fields.Str(required=True)
     type = fields.Str()
     price = fields.Int(required=True)
@@ -56,6 +65,7 @@ class OrderSchema(Schema):
     amount_left = fields.Int(required=True)
     balance = fields.Int()
     status = fields.Str(dump_only=True)
+    created = fields.DateTime(dump_only=True)
 
 class TransactionSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -75,6 +85,7 @@ ENTITY = {
     'account': Account,
     'asset'  : Asset,
     'market' : Market,
+    'event'  : Event,
     'order'  : Order
 }
 
@@ -83,6 +94,7 @@ ENTITY_SCHEMA = {
     'account': AccountSchema,
     'asset'  : AssetSchema,
     'market' : MarketSchema,
+    'event'  : EventSchema,
     'order'  : OrderSchema
 }
 

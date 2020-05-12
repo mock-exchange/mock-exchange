@@ -7,12 +7,18 @@ import math
 import random
 from datetime import datetime, timedelta
 import sqlite3
+import json
+from collections import namedtuple
 
 from sqlalchemy import create_engine, and_, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 import model
 from libs import random_dates
+
+#import logging
+#logging.basicConfig()
+#logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
 ENTITY = {
     'asset': model.Asset,
@@ -34,8 +40,9 @@ class Main():
         parser = argparse.ArgumentParser(description='Import utility')
         parser.add_argument("action", choices=[
             'import', 'export',
-            'ordproc', 'randbook',
-            'trade', 'test'
+            'events', 'randbook',
+            'trade', 'test',
+            'ordertest'
         ], help="Action")
 
         parser.add_argument("--entity",  help="entity")
@@ -44,6 +51,16 @@ class Main():
         #print(self.args)
         getattr(self, 'cmd_' + self.args.action)()
     
+    def cmd_ordertest(self):
+        print('ordertest')
+        
+        
+        q = self.session.query(model.Order)
+        #.options(joinedload(model.Order.market))
+        
+        for r in q.filter(model.Order.owner==1):
+            print(r.id, r.market.name, r.owner, r.price, r.amount)
+
     def cmd_test(self):
         print('test')
         print('sqlite3.version:',sqlite3.version)
@@ -247,8 +264,11 @@ class Main():
         self.session.commit()
 
 
-    def cmd_ordproc(self):
-        print('Process orders..')
+    def add_order(self):
+        pass
+
+    def cmd_events(self):
+        print('Process events..')
 
         # 1. Foreach order with new status
         #   a. For limit
@@ -257,31 +277,38 @@ class Main():
         #  and price <=> our price
 
         q = self.session.query(
-            model.Order
+            model.Event
         ).filter_by(
             status='new'
-        ).order_by(model.Order.id)
+        ).order_by(model.Event.id)
 
-        for o in q.all():
-            print("--- %05d %8s %8s %-4s %10d %10d" % (
-            o.id, o.type, o.status, o.direction, o.amount_left, o.price))
+        for e in q.all():
+            print("%05d %s %8d %5s\n%s" % (
+            e.id, e.created, e.owner, e.action, e.payload))
+            #o = json.loads(e.payload)
+            #o = type("JSON", (), json.loads(e.payload))()
+
             
+            if e.action == 'co':
+                p = json.loads(e.payload)
+                order_id = p['order_id']
+                o = self.session.query(model.Order).get(order_id)
+                print(o.__dict__)
+                o.status = 'canceled'
+
+                e.status = 'done'
+                self.session.commit()
+                continue
+
+            # event add_order
+            #if e.action == 'ao':
+            #    self.add_order()
+            o = json.loads(e.payload, object_hook=lambda d: namedtuple('X', d.keys())(*d.values()))
+            demand = float(o.amount)
+
             # Where
             where = []
             order = []
-            # status IN (open, partial)
-
-            # if direction == 'sell'
-            #   AND direction == 'buy'
-            #   AND price >= this.price -- not lt our limit
-
-            # elif direction == 'buy'
-            #   AND direction == 'sell'
-            #   AND price <= this.price -- not gt our limit
-
-            # ORDER BY
-            #   PRICE ASC,
-            #   ID ASC -- FIFO
 
             where.append(model.Order.status.in_(['open','partial']))
 
@@ -307,7 +334,6 @@ class Main():
             ).order_by(
                 *order
             )
-            demand = o.amount_left
             for o2 in q2.all():
                 print("  > %05d %8s %8s %-4s %10d %10d [ %10d ]" % (
                 o2.id, o2.type, o2.status, o2.direction, o2.amount_left, o2.price, demand))
@@ -323,8 +349,7 @@ class Main():
                 demand -= tx_amt
                 xx = model.TransactionItem(
                     account=1,
-                    amount=tx_amt,
-                    order=o2.id
+                    amount=tx_amt
                 )
                 print(xx.__dict__)
                 self.session.add(xx)
@@ -335,12 +360,35 @@ class Main():
                 o2.id, o2.type, o2.status, o2.direction, o2.amount_left, o2.price, demand))
                 print()
             
-            o.amount_left = demand
-            o.status = self.get_status(o)
 
-            print("-d- %05d %8s %8s %-4s %10d %10d" % (
-            o.id, o.type, o.status, o.direction, o.amount_left, o.price))
- 
+            if float(demand) == float(0):
+                status = 'closed'
+            elif float(demand) != float(o.amount):
+                status = 'partial'
+            else:
+                status = 'open'
+
+            no2 = model.Order(
+                owner=o.owner,
+                market_id=o.market,
+                direction=o.direction,
+                price=o.price,
+                amount=o.amount,
+                amount_left=demand,
+                status=status
+            )
+            #no.status = self.get_status(no)
+            self.session.add(no2)
+
+            print("new order:")
+            print(no2.__dict__)
+
+            e.status = 'done'
+            #print("-d- %05d %8s %8s %-4s %10d %10d" % (
+            #o.id, o.type, o.status, o.direction, o.amount_left, o.price))
+            #print("%05d %s %8d %5s %s" % (
+            #e.id, e.created, e.owner, e.action, e.payload))
+
             self.session.commit()
 
     def get_status(self, obj):

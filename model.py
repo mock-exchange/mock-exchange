@@ -75,13 +75,21 @@ class Event(Base):
     action = Column(String(10)) # ao(add order), co(cancel order)
                                # dep wthd
     payload = Column(Text())
+    created = Column(DateTime, default=utcnow)
+    status = Column(String(10), default='new') # new, done
 
 class Order(Base): # tx data; Cancel only
     __tablename__ = 'order'
 
     id = Column(Integer, primary_key=True)
     owner = Column(Integer) # fk Owner
-    market = Column(Integer) # fk Market
+    #market = Column(Integer) # fk Market
+    
+    
+    market_id = Column(Integer, ForeignKey('market.id'), nullable=False)
+    market = relationship("Market")
+
+    
     direction = Column(String(16)) # buy, sell
     type = Column(String(16), default='limit') # limit, market
     price = Column(Integer) # when market, no price
