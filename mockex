@@ -44,7 +44,7 @@ class Main():
             'import', 'export',
             'book', 'ohlc',
             'events', 'randbook',
-            'trade', 'test',
+            'trade', 'test', 'mktrade', 'gettrades',
             'ordertest'
         ], help="Action")
 
@@ -76,12 +76,48 @@ class Main():
         for row in rs:
             print("%-10s %10.2f %10.2f %10.2f" % tuple(row))
 
-    def get_class_by_tablename(self, tablename):
-        for c in model.Base._decl_class_registry.values():
-            print('c:',c)
-            if hasattr(c, '__table__') and c.__table__.name == tablename:
-                return c
+    def cmd_mktrade(self):
+        
+        t = model.Trade(
+            owner_id=22,
+            market_id=1,
+            price=8840,
+            amount=.123
+        )
+        print(t.__dict__)
+        self.session.add(t)
 
+        o = model.Order(
+            owner_id=22,
+            market_id=1,
+            side='buy',
+            type='limit',
+            price=8841,
+            amount=7.2
+        )
+        print(o.__dict__)
+        self.session.add(o)
+
+        l = model.Ledger(
+            owner_id=22,
+            order_id=1,
+            trade_id=1,
+            amount=100
+        )
+        print(l.__dict__)
+        self.session.add(l)
+
+
+        self.session.commit()
+
+        o1 = self.session.query(model.Order).get(1)
+        o1.status = 'closed'
+        self.session.commit()
+
+    def cmd_gettrades(self):
+        for t in self.session.query(model.Trade).all():
+            print(t.__dict__)
+            print(t.id,t.created,t.price,t.amount)
 
     def cmd_test(self):
 
@@ -90,7 +126,7 @@ class Main():
         print('[tables from Base.metadata]')
         for table in model.Base.metadata.tables.keys():
             foo = model.Base.metadata.tables[table]
-            bar = self.get_class_by_tablename(table)
+            bar = model.get_model_by_name(table)
             print(table, foo.decl_class, bar)
             tables[table] = bar
 

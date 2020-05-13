@@ -6,16 +6,16 @@ select
     sum(amount) over (rows unbounded preceding) as total
 from (
     select
-        direction as side,
+        side,
         price,
-        CAST(sum(amount_left) AS INT) as amount
+        CAST(sum(balance) AS INT) as amount
     from "order"
     where
         status in ('open','partial')
-        and direction = 'sell'
+        and side = 'sell'
         and market_id = ?
     group by
-        direction, price
+        side, price
     order by
         price asc
 )
@@ -27,16 +27,16 @@ select
     sum(amount) over (rows unbounded preceding) as total
 from (
     select
-        direction as side,
+        side,
         price,
-        CAST(sum(amount_left) AS INT) as amount
+        CAST(sum(balance) AS INT) as amount
     from "order"
     where
         status in ('open','partial')
-        and direction = 'buy'
+        and side = 'buy'
         and market_id = ?
     group by
-        direction, price
+        side, price
     order by
         price desc
 )

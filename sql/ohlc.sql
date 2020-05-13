@@ -7,6 +7,6 @@ SELECT
     last_value(price) over w AS close,
     CAST(SUM(amount) over w AS INT) AS value
 FROM trade
-WHERE market = ?
+WHERE market_id = ?
 window w AS (partition BY date(created))
 

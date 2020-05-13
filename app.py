@@ -12,9 +12,7 @@ from flask_sqlalchemy import SQLAlchemy
 
 from marshmallow import Schema, fields, ValidationError, pre_load
 
-from model import (
-    Owner, Account, Asset, Market, Event, Order, Trade, Transaction
-)
+import model
 
 from mocklib import SQL
 
@@ -30,13 +28,6 @@ class OwnerSchema(Schema):
     name = fields.Str()
     email = fields.Str()
     title = fields.Str()
-
-class AccountSchema(Schema):
-    id = fields.Int(dump_only=True)
-    name = fields.Str()
-    owner = fields.Int()
-    asset = fields.Int()
-    balance = fields.Int()
 
 class AssetSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -56,69 +47,85 @@ class EventSchema(Schema):
 
 class OrderSchema(Schema):
     id = fields.Int(dump_only=True)
-    owner = fields.Int(required=True)
 
-    #market = fields.Int(required=True)
+    owner = fields.Nested("OwnerSchema", only=("id", "name"))
     market = fields.Nested("MarketSchema", only=("id", "name"))
 
-    direction = fields.Str(required=True)
-    type = fields.Str()
-    price = fields.Int(required=True)
-    amount = fields.Int(required=True)
-    amount_left = fields.Int(required=True)
-    balance = fields.Int()
+    price = fields.Str(required=True)
+    amount = fields.Str(required=True)
+    balance = fields.Str(required=True)
+
+    side = fields.Str(required=True)
+    type = fields.Str(required=True)
     status = fields.Str(dump_only=True)
     created = fields.DateTime(dump_only=True)
+    modified = fields.DateTime(dump_only=True)
 
 class TradeSchema(Schema):
     id = fields.Int(dump_only=True)
-    #market = fields.Int()
-    amount = fields.Int()
-    price = fields.Int()
+    market = fields.Nested("MarketSchema", only=("id", "name"))
+    #owner = fields.Nested("OwnerSchema", only=("id", "name"))
+    order = fields.Nested("OrderSchema", only=("id", "status"))
+    price = fields.Str()
+    amount = fields.Str()
     created = fields.DateTime(dump_only=True)
 
-class TransactionSchema(Schema):
+class LedgerSchema(Schema):
     id = fields.Int(dump_only=True)
-    name = fields.Str()
-    account1 = fields.Int()
-    account2 = fields.Int()
-    price = fields.Int()
-    amount = fields.Int()
+    #owner = fields.Nested("OwnerSchema", only=("id", "name"))
+    order = fields.Nested("OrderSchema", only=("id", "status"))
+    trade = fields.Nested("TradeSchema", only=("id",))
+    price = fields.Str()
+    amount = fields.Str()
+    created = fields.DateTime(dump_only=True)
 
 
 @app.route('/')
 def index():
     return 'Mock Exchange'
 
+
+"""
+for table in model.Base.metadata.tables.keys():
+    pass
+"""
+
+ENTITY = {}
+
+for table in db.engine.table_names():
+    ENTITY[table] = model.get_model_by_name(table)
+
+"""
 ENTITY = {
-    'owner'  : Owner,
-    'account': Account,
-    'asset'  : Asset,
-    'market' : Market,
-    'event'  : Event,
-    'order'  : Order,
-    'trade'  : Trade
+    'owner'  : model.Owner,
+    'asset'  : model.Asset,
+    'market' : model.Market,
+    'event'  : model.Event,
+    'order'  : model.Order,
+    'trade'  : model.Trade,
+    'ledger' : model.Ledger
 }
+"""
 
 ENTITY_SCHEMA = {
     'owner'  : OwnerSchema,
-    'account': AccountSchema,
     'asset'  : AssetSchema,
     'market' : MarketSchema,
     'event'  : EventSchema,
     'order'  : OrderSchema,
-    'trade'  : TradeSchema
+    'trade'  : TradeSchema,
+    'ledger' : LedgerSchema
 }
 
 @app.route('/api/ohlc', methods=["GET"])
 def get_ohlc():
 
-    market = request.args.get('market')
-    if not market:
-        return {"message": "Market parameter required"}, 400
+    market_id = request.args.get('market_id')
+    if not market_id:
+        return {"message": "market_id parameter required"}, 400
 
     sql = SQL['ohlc']
-    q = db.engine.execute(sql, (request.args['market'],))
+    q = db.engine.execute(sql, (market_id,))
 
     result = []
     for row in q.fetchall():
@@ -130,12 +137,12 @@ def get_ohlc():
 @app.route('/api/book', methods=["GET"])
 def get_book():
 
-    market = request.args.get('market')
-    if not market:
-        return {"message": "Market parameter required"}, 400
+    market_id = request.args.get('market_id')
+    if not market_id:
+        return {"message": "market_id parameter required"}, 400
 
     sql = SQL['book']
-    rs = db.engine.execute(sql, (market, market,))
+    rs = db.engine.execute(sql, (market_id, market_id,))
 
     result = []
     for row in rs:

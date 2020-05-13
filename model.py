@@ -1,30 +1,17 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    Table,
     create_engine,
-    Column, Integer, BigInteger, Boolean, String, Text,
-    Numeric,
-    DateTime,
-    Date, Float,
+    Table, Column,
+    Integer, BigInteger, Boolean, String, Text,
+    Numeric, Enum, DateTime, Date, Float,
     ForeignKey, UniqueConstraint, ForeignKeyConstraint,
-    PrimaryKeyConstraint,
-    and_
+    PrimaryKeyConstraint
 )
 from sqlalchemy.orm import relationship, Session, backref
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 
-import re
-from sqlalchemy.dialects.sqlite import DATETIME
-
-"""
-DateTime = DATETIME(
-    storage_format="%(year)04d-%(month)02d-%(day)02d " + \
-        "%(hour)02d:%(minute)02d:%(second)02d",
-    regexp=r"(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)"
-)
-"""
 
 class Base(object):
     @classmethod
@@ -35,9 +22,20 @@ class Base(object):
 
 Base = declarative_base(cls=Base)
 
+
+# Common bits
 def utcnow():
     return datetime.utcnow()
-    #return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+
+#MoneyColumn = Column(BigInteger, default=0)
+#MoneyColumn = Column(Numeric(19,9), default=0)
+MoneyColumn = Column(Numeric(20,10), default=0)
+
+def get_model_by_name(name):
+    for c in Base._decl_class_registry.values():
+        if hasattr(c, '__table__') and c.__table__.name == name:
+            return c
+
 
 # Exchange data
 
@@ -50,6 +48,9 @@ class Asset(Base):
     name = Column(String(255))
     scale = Column(Integer) # digits behind decimal
 
+    created = Column(DateTime, default=utcnow)
+    modified = Column(DateTime, onupdate=utcnow)
+
 class Market(Base):
     __tablename__ = 'market'
 
@@ -58,6 +59,9 @@ class Market(Base):
     asset1 = Column(Integer) # fk Asset
     asset2 = Column(Integer) # fk Asset
 
+    created = Column(DateTime, default=utcnow)
+    modified = Column(DateTime, onupdate=utcnow)
+
 class Owner(Base):
     __tablename__ = 'owner'
 
@@ -65,75 +69,83 @@ class Owner(Base):
     name = Column(String(255), nullable=True)
     email = Column(String(255), nullable=True)
     title = Column(String(255), nullable=True)
+
     created = Column(DateTime, default=utcnow)
+    modified = Column(DateTime, onupdate=utcnow)
 
 class Event(Base):
     __tablename__ = 'event'
 
     id = Column(Integer, primary_key=True)
-    owner = Column(Integer)
-    action = Column(String(10)) # ao(add order), co(cancel order)
-                               # dep wthd
-    payload = Column(Text())
-    created = Column(DateTime, default=utcnow)
-    status = Column(String(10), default='new') # new, done
+    method = Column(Enum(
+        'place-order','cancel-order',
+        'deposit', 'withdraw'
+    ), nullable=False)
+    body = Column(Text()) # json payload
+    status = Column(Enum('new','done'), default='new')
 
-class Order(Base): # tx data; Cancel only
+    created = Column(DateTime, default=utcnow)
+    modified = Column(DateTime, onupdate=utcnow)
+
+class Order(Base): # Append only, except balance & status
     __tablename__ = 'order'
 
+    def __init__(self, **kwargs):
+        # Balance always starts off as amount
+        kwargs['balance'] = kwargs['amount']
+        super(Order, self).__init__(**kwargs)
+
     id = Column(Integer, primary_key=True)
-    owner = Column(Integer) # fk Owner
-    #market = Column(Integer) # fk Market
-    
-    
+    owner_id = Column(Integer, ForeignKey('owner.id'), nullable=False)
+    owner = relationship("Owner")
     market_id = Column(Integer, ForeignKey('market.id'), nullable=False)
     market = relationship("Market")
-
     
-    direction = Column(String(16)) # buy, sell
-    type = Column(String(16), default='limit') # limit, market
-    price = Column(Integer) # when market, no price
-    amount = Column(Integer)
-    amount_left = Column(Integer)
-    balance = Column(Integer)
-    status = Column(String(16), default='new')
-    # new, open, partial, close, cancel
-    # open, partial orders should be deducted from balance. It is reserved
-    created = Column(DateTime, default=utcnow)
+    price = MoneyColumn.copy()
+    amount = MoneyColumn.copy()
+    balance = MoneyColumn.copy()
 
-class Trade(Base):
+    side = Column(Enum('buy','sell'), nullable=False)
+    type = Column(Enum('limit','market'), nullable=False)
+    status = Column(Enum('open','partial','closed','canceled'), default='open')
+    # open, partial, closed, canceled
+    # open, partial orders should be deducted from account balance. It is reserved
+    created = Column(DateTime, default=utcnow)
+    modified = Column(DateTime, onupdate=utcnow)
+
+class Trade(Base): # Append only
     __tablename__ = 'trade'
 
     id = Column(Integer, primary_key=True)
-    market = Column(Integer)
-    created = Column(DateTime, default=utcnow)
-    price = Column(Numeric(18,8), default=0)
-    amount = Column(Numeric(18,8), default=0)
+    owner_id = Column(Integer, ForeignKey('owner.id'), nullable=False)
+    owner = relationship("Owner")
+    market_id = Column(Integer, ForeignKey('market.id'), nullable=False)
+    market = relationship("Market")
 
-class Transaction(Base): # tx data; Append only
-    __tablename__ = 'transaction'
+    price = MoneyColumn.copy()
+    amount = MoneyColumn.copy()
+
+    order_id = Column(Integer, ForeignKey('order.id'), nullable=True)
+    order = relationship("Order")
+
+    created = Column(DateTime, default=utcnow)
+
+class Ledger(Base): # Append only
+    __tablename__ = 'ledger'
 
     id = Column(Integer, primary_key=True)
+    owner_id = Column(Integer, ForeignKey('owner.id'), nullable=False)
+    owner = relationship("Owner")
+
+    amount = MoneyColumn.copy()
+    balance = MoneyColumn.copy()
+
+    # Origination References
+    # Are all ledger entries tied to Order and Trade?
+    order_id = Column(Integer, ForeignKey('order.id'), nullable=True)
+    order = relationship("Order")
+    trade_id = Column(Integer, ForeignKey('trade.id'), nullable=True)
+    trade = relationship("Trade")
+
     created = Column(DateTime, default=utcnow)
-    """
-    account1 = Column(Integer) # fk Account (from)
-    asset1 = Column(Integer) # fk Asset (from)
-
-    account2 = Column(Integer) # fk Account (to)
-    asset2 = Column(Integer) # fk Asset (to)
-
-    price = Column(Integer)
-    amount = Column(Integer)
-    """
-
-class TransactionItem(Base): # tx data; Append only
-    __tablename__ = 'transaction_item'
-
-    id = Column(Integer, primary_key=True)
-    transaction = Column(Integer) # fk Transaction
-    account = Column(Integer) #fk Account
-    amount = Column(Integer) # signed?
-    #order = Column(Integer) # fk Order
-
-
 
