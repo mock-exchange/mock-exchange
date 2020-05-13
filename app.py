@@ -16,7 +16,7 @@ from model import (
     Owner, Account, Asset, Market, Event, Order, Trade, Transaction
 )
 
-from libs import SQL
+from mocklib import SQL
 
 app = Flask(__name__)
 

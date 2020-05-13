@@ -14,7 +14,7 @@ from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import Session, joinedload
 
 import model
-from libs import random_dates, SQL
+from mocklib import random_dates, SQL
 
 #import logging
 #logging.basicConfig()
