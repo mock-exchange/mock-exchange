@@ -1,7 +1,6 @@
 id,symbol,name,scale,icon
 1,USD,US Dollar,2,fas fa-usd-circle
 2,BTC,Bitcoin,8,fab fa-bitcoin
-3,ETH,Ethereum,8,fab fa-ethereum
-4,SHT,Shitcoin,8,fas fa-poop
-5,POO,Poopcoin,8,fas fa-poo-storm
-6,CRP,Crapcoin,8,fas fa-biohazard
+3,SHT,Shitcoin,8,fas fa-poop
+4,POO,Poopcoin,8,fas fa-poo-storm
+5,CRP,Crapcoin,8,fas fa-biohazard
