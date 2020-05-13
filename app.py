@@ -117,6 +117,21 @@ ENTITY_SCHEMA = {
     'ledger' : LedgerSchema
 }
 
+@app.route('/api/last24', methods=["GET"])
+def get_last24():
+
+    market_id = request.args.get('market_id')
+    if not market_id:
+        return {"message": "market_id parameter required"}, 400
+
+    sql = SQL['last24']
+    q = db.engine.execute(sql, (market_id,))
+
+    result = dict(q.fetchone())
+
+    return jsonify(result)
+
+
 @app.route('/api/ohlc', methods=["GET"])
 def get_ohlc():
 
