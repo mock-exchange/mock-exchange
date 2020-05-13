@@ -368,11 +368,12 @@ class Main():
                 print(xx.__dict__)
                 self.session.add(xx)
 
-                #yy = model.Trade(
-                #    market=1,
-                #    price=
-                #    amount=
-                #)
+                yy = model.Trade(
+                    market=1,
+                    price=o2.price,
+                    amount=tx_amt
+                )
+                self.session.add(yy)
 
                 # then update remaining order amount
                 o2.amount_left = o2.amount_left - tx_amt

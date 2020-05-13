@@ -196,6 +196,9 @@ def get_entity(entity, pk=None):
             if oper == 'in':
                 vals = val.split(',')
                 args.append((col.in_(vals)))
+            elif oper == 'notin':
+                vals = val.split(',')
+                args.append(col.notin_(vals))
             elif oper == 'like':
                 args.append((col.like(val)))
             else:
@@ -203,13 +206,18 @@ def get_entity(entity, pk=None):
     
         q = db.session.query(Entity)
         q = q.filter(*args).order_by(*order)
-        rows = q.paginate(page=page, per_page=per_page).items
-        #rows = q.all()
-        result = EntitySchema(many=True).dump(rows)
+        page = q.paginate(page=page, per_page=per_page)
+        results = EntitySchema(many=True).dump(page.items)
 
-        blob = {
-            'a': request.args,
-            'results': result
+        result = {
+            'pagination': {
+                'total': page.total,
+                'page': page.page,
+                'per_page': page.per_page,
+                'has_next': page.has_next,
+                'has_prev': page.has_prev
+            },
+            'results': results
         }
 
     return jsonify(result)
