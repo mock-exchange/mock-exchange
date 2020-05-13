@@ -26,6 +26,8 @@ ENTITY = {
     'owner': model.Owner
 }
 
+API_ENTITIES = {}
+
 DATA_DIR = 'data'
 
 CSV_OPTS = { 'delimiter': ',', 'quotechar': '"', 'quoting': csv.QUOTE_MINIMAL }
@@ -40,7 +42,7 @@ class Main():
         parser = argparse.ArgumentParser(description='Import utility')
         parser.add_argument("action", choices=[
             'import', 'export',
-            'book',
+            'book', 'ohlc',
             'events', 'randbook',
             'trade', 'test',
             'ordertest'
@@ -74,9 +76,37 @@ class Main():
         for row in rs:
             print("%-10s %10.2f %10.2f %10.2f" % tuple(row))
 
+    def get_class_by_tablename(self, tablename):
+        for c in model.Base._decl_class_registry.values():
+            print('c:',c)
+            if hasattr(c, '__table__') and c.__table__.name == tablename:
+                return c
+
 
     def cmd_test(self):
-        print('test')
+
+        tables = {}
+
+        print('[tables from Base.metadata]')
+        for table in model.Base.metadata.tables.keys():
+            foo = model.Base.metadata.tables[table]
+            bar = self.get_class_by_tablename(table)
+            print(table, foo.decl_class, bar)
+            tables[table] = bar
+
+        print()
+        print('[tables from engine.table_names()]')
+        for table in self.engine.table_names():
+            print(table)
+
+        print()
+        print('Test query asset')
+        Entity = tables['asset']
+        for r in self.session.query(Entity).filter(Entity.symbol=='USD').all():
+            print(r.__dict__)
+
+
+    def cmd_ohlc(self):
         print('sqlite3.version:',sqlite3.version)
         print('sqlite3.sqlite_version:',sqlite3.sqlite_version)
         conn = sqlite3.connect('me.db')

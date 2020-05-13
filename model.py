@@ -1,9 +1,11 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    Table,
     create_engine,
     Column, Integer, BigInteger, Boolean, String, Text,
-    # DateTime, 
+    Numeric,
+    DateTime,
     Date, Float,
     ForeignKey, UniqueConstraint, ForeignKeyConstraint,
     PrimaryKeyConstraint,
@@ -16,13 +18,22 @@ from sqlalchemy.ext.hybrid import hybrid_property
 import re
 from sqlalchemy.dialects.sqlite import DATETIME
 
+"""
 DateTime = DATETIME(
     storage_format="%(year)04d-%(month)02d-%(day)02d " + \
         "%(hour)02d:%(minute)02d:%(second)02d",
     regexp=r"(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)"
 )
+"""
 
-Base = declarative_base()
+class Base(object):
+    @classmethod
+    def __table_cls__(cls, *args, **kwargs):
+        t = Table(*args, **kwargs)
+        t.decl_class = cls
+        return t
+
+Base = declarative_base(cls=Base)
 
 def utcnow():
     return datetime.utcnow()
@@ -54,17 +65,6 @@ class Owner(Base):
     name = Column(String(255), nullable=True)
     email = Column(String(255), nullable=True)
     title = Column(String(255), nullable=True)
-    created = Column(DateTime, default=utcnow)
-
-class Account(Base):
-    __tablename__ = 'account'
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=True)
-    owner = Column(Integer) # fk Owner
-    asset = Column(Integer) # fk Asset
-    balance = Column(Integer)
-    # amount - sum transaction table
     created = Column(DateTime, default=utcnow)
 
 class Event(Base):
@@ -107,8 +107,8 @@ class Trade(Base):
     id = Column(Integer, primary_key=True)
     market = Column(Integer)
     created = Column(DateTime, default=utcnow)
-    price = Column(Integer)
-    amount = Column(Integer)
+    price = Column(Numeric(18,8), default=0)
+    amount = Column(Numeric(18,8), default=0)
 
 class Transaction(Base): # tx data; Append only
     __tablename__ = 'transaction'
