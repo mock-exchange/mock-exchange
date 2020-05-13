@@ -53,7 +53,7 @@ class OrderSchema(Schema):
 
     price = fields.Str(required=True)
     amount = fields.Str(required=True)
-    balance = fields.Str(required=True)
+    balance = fields.Str(dump_only=True)
 
     side = fields.Str(required=True)
     type = fields.Str(required=True)
@@ -66,8 +66,8 @@ class TradeSchema(Schema):
     market = fields.Nested("MarketSchema", only=("id", "name"))
     #owner = fields.Nested("OwnerSchema", only=("id", "name"))
     order = fields.Nested("OrderSchema", only=("id", "status"))
-    price = fields.Str()
-    amount = fields.Str()
+    price = fields.Str(dump_only=True)
+    amount = fields.Str(dump_only=True)
     created = fields.DateTime(dump_only=True)
 
 class LedgerSchema(Schema):
@@ -75,8 +75,8 @@ class LedgerSchema(Schema):
     #owner = fields.Nested("OwnerSchema", only=("id", "name"))
     order = fields.Nested("OrderSchema", only=("id", "status"))
     trade = fields.Nested("TradeSchema", only=("id",))
-    price = fields.Str()
-    amount = fields.Str()
+    price = fields.Str(dump_only=True)
+    amount = fields.Str(dump_only=True)
     created = fields.DateTime(dump_only=True)
 
 
@@ -151,10 +151,8 @@ def get_book():
     return jsonify(result)
 
 
-
-@app.route('/api/<string:entity>', methods=["GET"])
 @app.route('/api/<string:entity>/<int:pk>', methods=["GET"])
-def get_entity(entity, pk=None):
+def get_entity_id(entity, pk):
     if entity not in ENTITY.keys():
         return {"message": "No such entity"}, 400
 
@@ -163,74 +161,83 @@ def get_entity(entity, pk=None):
 
     result = None
 
-    #print('args:',list(request.args.keys()))
+    row = db.session.query(Entity).get(pk)
+    result = EntitySchema().dump(row)
 
-    if pk:
-        row = db.session.query(Entity).get(pk)
-        result = EntitySchema().dump(row)
-    else:
-        order = []
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 10, type=int)
-        args = []
+    return jsonify(result)
 
-        if 'order' in request.args:
-            raw = request.args.get('order')
-            ss = raw.split('.')
-            k = ss[0]
-            sortdir = None
-            if len(ss) > 1:
-                sortdir = ss[1]
-            col = getattr(Entity, k)
-            if sortdir == 'asc':
-                order.append(col.asc())
-            else:
-                order.append(col.desc())
-        
 
-        valid = Entity.__table__.columns.keys()
-        for raw in request.args:
-            ss = raw.split('__')
-            k = ss[0]
-            oper = None
-            if len(ss) > 1:
-                oper = ss[1]
+@app.route('/api/<string:entity>', methods=["GET"])
+def get_entity_list(entity):
+    if entity not in ENTITY.keys():
+        return {"message": "No such entity"}, 400
 
-            if k not in valid:
-                continue
-            col = getattr(Entity, k)
-            val = request.args[raw]
-            if oper == 'in':
-                vals = val.split(',')
-                args.append((col.in_(vals)))
-            elif oper == 'notin':
-                vals = val.split(',')
-                args.append(col.notin_(vals))
-            elif oper == 'like':
-                args.append((col.like(val)))
-            else:
-                args.append((col==val))
-    
-        q = db.session.query(Entity)
-        q = q.filter(*args).order_by(*order)
-        page = q.paginate(page=page, per_page=per_page)
-        results = EntitySchema(many=True).dump(page.items)
+    Entity = ENTITY[entity]
+    EntitySchema = ENTITY_SCHEMA[entity]
 
-        result = {
-            'pagination': {
-                'total': page.total,
-                'page': page.page,
-                'per_page': page.per_page,
-                'has_next': page.has_next,
-                'has_prev': page.has_prev
-            },
-            'results': results
-        }
+    result = None
+
+    order = []
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int)
+    args = []
+
+    if 'order' in request.args:
+        raw = request.args.get('order')
+        ss = raw.split('.')
+        k = ss[0]
+        sortdir = None
+        if len(ss) > 1:
+            sortdir = ss[1]
+        col = getattr(Entity, k)
+        if sortdir == 'asc':
+            order.append(col.asc())
+        else:
+            order.append(col.desc())
+
+    valid = Entity.__table__.columns.keys()
+    for raw in request.args:
+        ss = raw.split('__')
+        k = ss[0]
+        oper = None
+        if len(ss) > 1:
+            oper = ss[1]
+
+        if k not in valid:
+            continue
+        col = getattr(Entity, k)
+        val = request.args[raw]
+        if oper == 'in':
+            vals = val.split(',')
+            args.append((col.in_(vals)))
+        elif oper == 'notin':
+            vals = val.split(',')
+            args.append(col.notin_(vals))
+        elif oper == 'like':
+            args.append((col.like(val)))
+        else:
+            args.append((col==val))
+
+    q = db.session.query(Entity)
+    q = q.filter(*args).order_by(*order)
+    page = q.paginate(page=page, per_page=per_page)
+    results = EntitySchema(many=True).dump(page.items)
+
+    result = {
+        'pagination': {
+            'total': page.total,
+            'page': page.page,
+            'per_page': page.per_page,
+            'has_next': page.has_next,
+            'has_prev': page.has_prev
+        },
+        'results': results
+    }
 
     return jsonify(result)
 
 @app.route("/api/<string:entity>", methods=["POST"])
-def new_entity(entity):
+def create_entity(entity):
     if entity not in ENTITY.keys():
         return {"message": "No such entity"}, 400
 
