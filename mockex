@@ -81,8 +81,8 @@ class Main():
         t = model.Trade(
             owner_id=4,
             market_id=1,
-            price=7282,
-            amount=1.3
+            price=random.randrange(6400,8500),
+            amount=random.randrange(1,5)
         )
         print(t.__dict__)
         self.session.add(t)

@@ -144,7 +144,13 @@ def get_ohlc():
 
     result = []
     for row in q.fetchall():
-        result.append(dict(row))
+        d = dict(row)
+        # chart library doesn't support empty fields yet
+        # https://github.com/tradingview/lightweight-charts/pull/294
+        #if d.get('open') == 0:
+        #    for k in ('open','high','low','close','value','volume'):
+        #        d.pop(k)
+        result.append(d)
 
     return jsonify(result)
 
