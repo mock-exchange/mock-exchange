@@ -41,9 +41,8 @@ class MarketSchema(Schema):
 
 class EventSchema(Schema):
     id = fields.Int(dump_only=True)
-    owner = fields.Int()
-    action = fields.Str()
-    payload = fields.Str()
+    method = fields.Str()
+    body = fields.Str()
 
 class OrderSchema(Schema):
     id = fields.Int(dump_only=True)

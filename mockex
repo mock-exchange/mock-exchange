@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session, joinedload
 import model
 from mocklib import random_dates, SQL
 
+from decimal import Decimal
+
 #import logging
 #logging.basicConfig()
 #logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
@@ -234,7 +236,7 @@ class Main():
                 #dt = datetime.utcfromtimestamp(fuck)
                 dt = dt + timedelta(minutes=5)
                 print(dt)
-                price = float(row['price']) - 6000
+                price = Decimal(row['price']) - 6000
                 amount = int(row['amount']) * .001
                 m = model.Trade(market=3, created=dt, price=price, amount=amount)
                 print(m.__dict__)
@@ -363,14 +365,14 @@ class Main():
         ).order_by(model.Event.id)
 
         for e in q.all():
-            print("%05d %s %8d %5s\n%s" % (
-            e.id, e.created, e.owner, e.action, e.payload))
+            print("%05d %s %8s\n%s" % (
+            e.id, e.created, e.method, e.body))
             #o = json.loads(e.payload)
             #o = type("JSON", (), json.loads(e.payload))()
 
             
-            if e.action == 'co':
-                p = json.loads(e.payload)
+            if e.method == 'cancel-order':
+                p = json.loads(e.body)
                 order_id = p['order_id']
                 o = self.session.query(model.Order).get(order_id)
                 print(o.__dict__)
@@ -383,8 +385,8 @@ class Main():
             # event add_order
             #if e.action == 'ao':
             #    self.add_order()
-            o = json.loads(e.payload, object_hook=lambda d: namedtuple('X', d.keys())(*d.values()))
-            demand = float(o.amount)
+            o = json.loads(e.body, object_hook=lambda d: namedtuple('X', d.keys())(*d.values()))
+            demand = Decimal(o.amount)
 
             # Where
             where = []
@@ -392,15 +394,15 @@ class Main():
 
             where.append(model.Order.status.in_(['open','partial']))
 
-            if o.direction == 'sell':
-                where.append(model.Order.direction == 'buy')
+            if o.side == 'sell':
+                where.append(model.Order.side == 'buy')
                 where.append(model.Order.price >= o.price)
 
                 order.append(model.Order.price.desc())
                 order.append(model.Order.id.asc())
 
-            elif o.direction == 'buy':
-                where.append(model.Order.direction == 'sell')
+            elif o.side == 'buy':
+                where.append(model.Order.side == 'sell')
                 where.append(model.Order.price <= o.price)
 
                 order.append(model.Order.price.asc())
@@ -416,7 +418,7 @@ class Main():
             )
             for o2 in q2.all():
                 print("  > %05d %8s %8s %-4s %10d %10d [ %10d ]" % (
-                o2.id, o2.type, o2.status, o2.direction, o2.amount_left, o2.price, demand))
+                o2.id, o2.type, o2.status, o2.side, o2.balance, o2.price, demand))
                 # demand 3
                 # has 2: tx for 2, 3-2, 1 demand left
                 # has 12: tx for 1, 1-1, 0 demand left
@@ -425,44 +427,45 @@ class Main():
                 if not demand:
                     break
                 
-                tx_amt = o2.amount_left if demand > o2.amount_left else demand
+                tx_amt = o2.balance if demand > o2.balance else demand
                 demand -= tx_amt
-                xx = model.TransactionItem(
-                    account=1,
+                xx = model.Ledger(
+                    owner_id=1,
                     amount=tx_amt
                 )
                 print(xx.__dict__)
                 self.session.add(xx)
 
                 yy = model.Trade(
-                    market=1,
+                    owner_id=1,
+                    market_id=1,
                     price=o2.price,
                     amount=tx_amt
                 )
                 self.session.add(yy)
 
                 # then update remaining order amount
-                o2.amount_left = o2.amount_left - tx_amt
+                o2.balance = o2.balance - tx_amt
                 o2.status = self.get_status(o2)
                 print("  X %05d %8s %8s %-4s %10d %10d [ %10d ]" % (
-                o2.id, o2.type, o2.status, o2.direction, o2.amount_left, o2.price, demand))
+                o2.id, o2.type, o2.status, o2.side, o2.balance, o2.price, demand))
                 print()
             
 
-            if float(demand) == float(0):
+            if Decimal(demand) == Decimal(0):
                 status = 'closed'
-            elif float(demand) != float(o.amount):
+            elif Decimal(demand) != Decimal(o.amount):
                 status = 'partial'
             else:
                 status = 'open'
 
             no2 = model.Order(
-                owner=o.owner,
-                market_id=o.market,
-                direction=o.direction,
+                owner_id=o.owner_id,
+                market_id=o.market_id,
+                side=o.side,
+                type='limit',
                 price=o.price,
                 amount=o.amount,
-                amount_left=demand,
                 status=status
             )
             #no.status = self.get_status(no)
@@ -480,9 +483,9 @@ class Main():
             self.session.commit()
 
     def get_status(self, obj):
-        if obj.amount_left == 0:
+        if obj.balance == 0:
             return 'closed'
-        elif obj.amount_left != obj.amount:
+        elif obj.balance != obj.amount:
             return 'partial'
         else:
             return 'open'
