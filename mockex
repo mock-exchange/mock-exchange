@@ -81,7 +81,7 @@ class Main():
         t = model.Trade(
             owner_id=4,
             market_id=1,
-            price=random.randrange(6400,8500),
+            price=random.randrange(5400,6200),
             amount=random.randrange(1,5)
         )
         print(t.__dict__)
