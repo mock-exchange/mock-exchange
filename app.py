@@ -116,6 +116,24 @@ ENTITY_SCHEMA = {
     'ledger' : LedgerSchema
 }
 
+@app.route('/api/balance', methods=["GET"])
+def get_balance():
+
+    owner_id = request.args.get('owner_id')
+    if not owner_id:
+        return {"message": "owner_id parameter required"}, 400
+
+    sql = SQL['balance']
+    rs = db.engine.execute(sql, (owner_id,))
+
+    result = []
+    for row in rs:
+        result.append(dict(row))
+
+    return jsonify(result)
+
+
+
 @app.route('/api/last24', methods=["GET"])
 def get_last24():
 
