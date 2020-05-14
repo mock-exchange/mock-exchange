@@ -92,7 +92,8 @@ class Order(Base): # Append only, except balance & status
 
     def __init__(self, **kwargs):
         # Balance always starts off as amount
-        kwargs['balance'] = kwargs['amount']
+        if 'balance' not in kwargs:
+            kwargs['balance'] = kwargs['amount']
         super(Order, self).__init__(**kwargs)
 
     id = Column(Integer, primary_key=True)
@@ -136,6 +137,9 @@ class Ledger(Base): # Append only
     id = Column(Integer, primary_key=True)
     owner_id = Column(Integer, ForeignKey('owner.id'), nullable=False)
     owner = relationship("Owner")
+
+    asset_id = Column(Integer, ForeignKey('asset.id'), nullable=True)
+    asset = relationship("Asset")
 
     amount = MoneyColumn.copy()
     balance = MoneyColumn.copy()
