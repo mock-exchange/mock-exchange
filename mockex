@@ -394,6 +394,10 @@ class Main():
 
             where.append(model.Order.status.in_(['open','partial']))
 
+            # NO WASH TRADES
+            # Exclude owner's orders from set to be matched
+            where.append(model.Order.owner_id != o.owner_id)
+
             if o.side == 'sell':
                 where.append(model.Order.side == 'buy')
                 where.append(model.Order.price >= o.price)
@@ -466,6 +470,7 @@ class Main():
                 type='limit',
                 price=o.price,
                 amount=o.amount,
+                balance=demand,
                 status=status
             )
             #no.status = self.get_status(no)

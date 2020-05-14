@@ -40,5 +40,5 @@ from (
     order by
         price desc
 )
-order by price asc
+order by side asc, price asc
 
