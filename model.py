@@ -56,8 +56,11 @@ class Market(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=True)
-    asset1 = Column(Integer) # fk Asset
-    asset2 = Column(Integer) # fk Asset
+
+    asset1 = Column(Integer, ForeignKey('asset.id'), nullable=False)
+    asset = relationship("Asset", foreign_keys=[asset1])
+    asset2 = Column(Integer, ForeignKey('asset.id'), nullable=False)
+    uoa = relationship("Asset", foreign_keys=[asset2])
 
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
