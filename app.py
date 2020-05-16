@@ -38,6 +38,8 @@ class AssetSchema(Schema):
 class MarketSchema(Schema):
     id = fields.Int(dump_only=True)
     name = fields.Str()
+    asset = fields.Nested("AssetSchema")
+    uoa = fields.Nested("AssetSchema")
 
 class EventSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -224,7 +226,7 @@ def get_ohlc():
         '1d' : 'days'
     }
 
-    step_val = steps_int[interval] * 200
+    step_val = steps_int[interval] * 500
     
     start = "datetime('now', '-{} {}')".format(step_val, steps_xx[interval])
     sqlparts = {
