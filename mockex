@@ -216,40 +216,48 @@ class Main():
             reader = csv.DictReader(csvfile, **CSV_OPTS)
 
             # Clean table
-            #deleted = self.session.query(model.Trade).delete()
-            #self.session.commit()
-
-            skip = 0
-            for row in reader:
-                skip += 1
-                if skip > 100000:
-                    break
+            deleted = self.session.query(model.Trade).delete()
+            self.session.commit()
+            
+            begin_row = 100000
+            end_cnt = 300000
 
             start = datetime.utcnow() - timedelta(days=120)
             dt = start
             cnt = 0
+            inserted = 0
             for row in reader:
-                #fuck = int(row['timestamp'])
-                #print(fuck)
-                #fuck = fuck / 1000000
-                #print(fuck)
-                #dt = datetime.utcfromtimestamp(fuck)
-                dt = dt + timedelta(minutes=5)
-                print(dt)
-                price = Decimal(row['price']) - 6000
-                amount = int(row['amount']) * .001
-                m = model.Trade(market=3, created=dt, price=price, amount=amount)
-                print(m.__dict__)
-                self.session.add(m)
                 cnt += 1
+
+                # skip some
+                if cnt < begin_row:
+                    continue
+                if cnt > begin_row + end_cnt:
+                    break
+
+                ts = int(row['timestamp'])
+                ts = ts / 1000000
+                dt = datetime.utcfromtimestamp(ts)
+                dt = dt.replace(2020, 5, 15)
+                #dt = dt + timedelta(minutes=5)
+                #print(dt)
+                price = Decimal(row['price'])
+                amount = int(row['amount'])
+                m = model.Trade(
+                    owner_id=100,
+                    market_id=1,
+                    created=dt,
+                    price=price,
+                    amount=amount
+                )
+                #print(m.__dict__)
+                self.session.add(m)
+                inserted += 1
                 if cnt % 1000 == 0:
                     self.session.commit()
 
-                if cnt > 50000:
-                    break
-                
             self.session.commit()
-            print(cnt, 'rows imported')
+            print(inserted, 'rows imported')
 
 
     def cmd_randbook(self):
