@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 import sqlite3
 import json
 from collections import namedtuple
+import requests
+import shortuuid
 
 from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import Session, joinedload
@@ -47,7 +49,8 @@ class Main():
             'book', 'ohlc',
             'events', 'randbook',
             'trade', 'test', 'mktrade', 'gettrades',
-            'ordertest'
+            'ordertest',
+            'generate_profiles'
         ], help="Action")
 
         parser.add_argument("--entity",  help="entity")
@@ -56,6 +59,53 @@ class Main():
         #print(self.args)
         getattr(self, 'cmd_' + self.args.action)()
     
+    def cmd_generate_profiles(self):
+        base_url = 'https://randomuser.me/api/1.3/'
+        params = {
+            'seed': 'foobar',
+            'results': '2',
+            'inc': 'gender,name,email,picture,nat,login,dob,location,phone',
+            'nat': 'US'
+        }
+        qs = '&'.join([key+'='+value for key, value in params.items()])
+        url = '?'.join([base_url, qs])
+
+        r = requests.get(url)
+        
+        print(r.status_code)
+        print(r.headers['content-type'])
+        #print(r.text)
+        print(r.json()['info'])
+
+        for i in r.json()['results']:
+            arg = {
+                'name'     : ' '.join((i['name']['first'], i['name']['last'])),
+                'email'    : i['email'],
+                'username' : i['login']['username'],
+                'uuid'     : shortuuid.uuid(i['login']['uuid']),
+                'profile'  : json.dumps(i)
+            }
+ 
+            print(arg['name'], arg['username'])
+            print()
+          
+            # Crappy replace into
+            o = self.session.query(model.Owner).filter_by(
+                username=arg['username']).one_or_none()
+            if o:
+                print('update..', o)
+                for a in arg:
+                    setattr(o, a, arg[a])
+            else:
+                print('insert..')
+                o = model.Owner(**arg)
+                self.session.add(o)
+        
+        self.session.commit()
+
+
+
+
     def cmd_ordertest(self):
         print('ordertest')
         

@@ -70,10 +70,13 @@ class Owner(Base):
     __tablename__ = 'owner'
 
     id = Column(Integer, primary_key=True)
+    username = Column(String(255), nullable=True, unique=True)
+    email = Column(String(255), nullable=True, unique=True)
     name = Column(String(255), nullable=True)
-    email = Column(String(255), nullable=True)
-    title = Column(String(255), nullable=True)
+    profile = Column(Text()) # json payload
 
+    uuid = Column(String(20), default=shortuuid.uuid(), nullable=True, 
+        unique=True)
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
 
