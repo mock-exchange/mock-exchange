@@ -216,11 +216,11 @@ class Main():
             reader = csv.DictReader(csvfile, **CSV_OPTS)
 
             # Clean table
-            deleted = self.session.query(model.Trade).delete()
-            self.session.commit()
+            #deleted = self.session.query(model.Trade).delete()
+            #self.session.commit()
             
-            begin_row = 100000
-            end_cnt = 300000
+            begin_row = 200000
+            end_cnt = 50000
 
             start = datetime.utcnow() - timedelta(days=120)
             dt = start
@@ -237,9 +237,9 @@ class Main():
 
                 ts = int(row['timestamp'])
                 ts = ts / 1000000
-                dt = datetime.utcfromtimestamp(ts)
-                dt = dt.replace(2020, 5, 15)
-                #dt = dt + timedelta(minutes=5)
+                #dt = datetime.utcfromtimestamp(ts)
+                #dt = dt.replace(2020, 5, 15)
+                dt = dt + timedelta(minutes=5)
                 #print(dt)
                 price = Decimal(row['price'])
                 amount = int(row['amount'])
