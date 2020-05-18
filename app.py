@@ -135,18 +135,28 @@ def get_balance():
     return jsonify(result)
 
 
-
+@app.route('/api/last24/<int:market_id>', methods=["GET"])
 @app.route('/api/last24', methods=["GET"])
-def get_last24():
-
-    market_id = request.args.get('market_id')
-    if not market_id:
-        return {"message": "market_id parameter required"}, 400
+def get_last24(market_id = None):
 
     sql = SQL['last24']
-    q = db.engine.execute(sql, (market_id,))
 
-    result = dict(q.fetchone())
+    result = []
+    where = ''
+    values = []
+
+    if market_id:
+        where = 'AND market_id=?'
+        values.append((market_id, market_id))
+
+    sql = sql.format(where=where)
+    rs = db.engine.execute(sql, values)
+
+    if market_id:
+        result = dict(rs.fetchone())
+    else:
+        for row in rs:
+            result.append(dict(row))
 
     return jsonify(result)
 
