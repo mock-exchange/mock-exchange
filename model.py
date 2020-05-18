@@ -1,4 +1,5 @@
 from datetime import datetime
+import shortuuid
 
 from sqlalchemy import (
     create_engine,
@@ -87,6 +88,7 @@ class Event(Base):
     body = Column(Text()) # json payload
     status = Column(Enum('new','done'), default='new')
 
+    uuid = Column(String(20), default=shortuuid.uuid())
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
 

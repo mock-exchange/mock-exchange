@@ -45,6 +45,7 @@ class EventSchema(Schema):
     id = fields.Int(dump_only=True)
     method = fields.Str()
     body = fields.Str()
+    uuid = fields.Str(dump_only=True)
 
 class OrderSchema(Schema):
     id = fields.Int(dump_only=True)
