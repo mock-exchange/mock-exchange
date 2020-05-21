@@ -15,9 +15,10 @@ SELECT
     a.symbol,
     a.name,
     a.icon,
-    SUM(l.amount) AS balance,
-    value.price AS last_price,
-    SUM(l.amount) * value.price AS usd_value,
+    COALESCE(SUM(l.amount),0) AS balance,
+    0 AS reserve,
+    COALESCE(value.price,0) AS last_price,
+    COALESCE(SUM(l.amount) * value.price,0) AS usd_value,
     MIN(l.created) AS opening,
     MAX(l.created) AS ending
 FROM asset AS a
