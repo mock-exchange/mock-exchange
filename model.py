@@ -5,10 +5,11 @@ from sqlalchemy import (
     create_engine,
     Table, Column,
     Integer, BigInteger, Boolean, String, Text,
-    Numeric, Enum, DateTime, Date, Float,
+    Numeric, Enum, DateTime, Date, Float, JSON,
     ForeignKey, UniqueConstraint, ForeignKeyConstraint,
     PrimaryKeyConstraint
 )
+#from sqlalchemy.types import JSON
 from sqlalchemy.orm import relationship, Session, backref
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -73,7 +74,8 @@ class Owner(Base):
     username = Column(String(255), nullable=True, unique=True)
     email = Column(String(255), nullable=True, unique=True)
     name = Column(String(255), nullable=True)
-    profile = Column(Text()) # json payload
+    profile = Column(Text) # json payload
+    picture = Column(String(255))
 
     uuid = Column(String(20), default=shortuuid.uuid(), nullable=True, 
         unique=True)

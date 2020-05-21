@@ -11,15 +11,18 @@ from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 
 from marshmallow import Schema, fields, ValidationError, pre_load
+from marshmallow import post_dump
 
 import model
 
 from mocklib import SQL
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='foo')
 
+#app.config['STATIC_FOLDER'] = 'foo'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///me.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 db = SQLAlchemy(app)
 
 
@@ -27,7 +30,18 @@ class OwnerSchema(Schema):
     id = fields.Int(dump_only=True)
     name = fields.Str()
     email = fields.Str()
-    title = fields.Str()
+    username = fields.Str()
+    picture = fields.Str()
+    profile = fields.Str(dump_only=True)
+
+    """
+    @post_dump
+    def make_json(self, data, **kwargs):
+        print("make_json. data:",type(data), data)
+        if 'profile' in data:
+            data['profile'] = json.loads(data['profile'])
+        return data
+    """
 
 class AssetSchema(Schema):
     id = fields.Int(dump_only=True)

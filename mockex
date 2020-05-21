@@ -71,7 +71,8 @@ class Main():
             os.mkdir(img_dir)
 
         #self.randomuser_fetchjson()
-        self.randomuser_fetchimages()
+        #self.randomuser_fetchimages()
+        self.randomuser_import2db()
 
 
     def randomuser_pages(self):
@@ -180,7 +181,11 @@ class Main():
                     'uuid'     : shortuuid.uuid(i['login']['uuid']),
                     'profile'  : json.dumps(i)
                 }
-     
+                
+                imgurl = i['picture']['large']
+                arg['picture'] = '/static' + urlparse(imgurl).path
+
+
                 print(arg['name'], arg['username'])
                 print()
               
@@ -274,6 +279,12 @@ class Main():
             print(t.id,t.created,t.price,t.amount)
 
     def cmd_test(self):
+        for r in self.session.query(model.Owner).limit(5).all():
+            print(r.name)
+            print(r.profile)
+            print(r.profile['gender'])
+
+        return
 
         tables = {}
 
@@ -509,6 +520,149 @@ class Main():
     def add_order(self):
         pass
 
+
+    def event_place_order(self, e):
+        # event add_order
+        #if e.action == 'ao':
+        #    self.add_order()
+        o = json.loads(e.body, object_hook=lambda d: namedtuple('X', d.keys())(*d.values()))
+        demand = Decimal(o.amount)
+
+        # Where
+        where = []
+        order = []
+
+        where.append(model.Order.status.in_(['open','partial']))
+
+        # NO WASH TRADES
+        # Exclude owner's orders from set to be matched
+        where.append(model.Order.owner_id != o.owner_id)
+
+        if o.side == 'sell':
+            where.append(model.Order.side == 'buy')
+            where.append(model.Order.price >= o.price)
+
+            order.append(model.Order.price.desc())
+            order.append(model.Order.id.asc())
+
+        elif o.side == 'buy':
+            where.append(model.Order.side == 'sell')
+            where.append(model.Order.price <= o.price)
+
+            order.append(model.Order.price.asc())
+            order.append(model.Order.id.asc())
+
+        # This query returns book matches, so start slicing thru them
+        q2 = self.session.query(
+            model.Order
+        ).filter(
+            and_(*where)
+        ).order_by(
+            *order
+        )
+        for o2 in q2.all():
+            print("  > %05d %8s %8s %-4s %10d %10d [ %10d ]" % (
+            o2.id, o2.type, o2.status, o2.side, o2.balance, o2.price, demand))
+            # demand 3
+            # has 2: tx for 2, 3-2, 1 demand left
+            # has 12: tx for 1, 1-1, 0 demand left
+            
+            # tx is up to demand amt
+            if not demand:
+                break
+            
+            tx_amt = o2.balance if demand > o2.balance else demand
+            demand -= tx_amt
+            xx = model.Ledger(
+                owner_id=1,
+                amount=tx_amt
+            )
+            print(xx.__dict__)
+            self.session.add(xx)
+
+            yy = model.Trade(
+                owner_id=1,
+                market_id=1,
+                price=o2.price,
+                amount=tx_amt
+            )
+            self.session.add(yy)
+
+            # then update remaining order amount
+            o2.balance = o2.balance - tx_amt
+            o2.status = self.get_status(o2)
+            print("  X %05d %8s %8s %-4s %10d %10d [ %10d ]" % (
+            o2.id, o2.type, o2.status, o2.side, o2.balance, o2.price, demand))
+            print()
+        
+
+        if Decimal(demand) == Decimal(0):
+            status = 'closed'
+        elif Decimal(demand) != Decimal(o.amount):
+            status = 'partial'
+        else:
+            status = 'open'
+
+        no2 = model.Order(
+            owner_id=o.owner_id,
+            market_id=o.market_id,
+            side=o.side,
+            type='limit',
+            price=o.price,
+            amount=o.amount,
+            balance=demand,
+            status=status
+        )
+        #no.status = self.get_status(no)
+        self.session.add(no2)
+
+        print("new order:")
+        print(no2.__dict__)
+
+        e.status = 'done'
+        #print("-d- %05d %8s %8s %-4s %10d %10d" % (
+        #o.id, o.type, o.status, o.direction, o.amount_left, o.price))
+        #print("%05d %s %8d %5s %s" % (
+        #e.id, e.created, e.owner, e.action, e.payload))
+
+        self.session.commit()
+
+
+    def event_cancel_order(self, e):
+        p = json.loads(e.body)
+        order_id = p['order_id']
+        o = self.session.query(model.Order).get(order_id)
+        print(o.__dict__)
+        o.status = 'canceled'
+
+        e.status = 'done'
+        self.session.commit()
+
+    def event_deposit(self, e):
+        p = json.loads(e.body)
+
+        l = model.Ledger(
+            owner_id=p['owner_id'],
+            asset_id=p['asset_id'],
+            amount=p['amount']
+        )
+        self.session.add(l)
+        e.status = 'done'
+        self.session.commit()
+
+    def event_withdraw(self, e):
+        p = json.loads(e.body)
+
+        l = model.Ledger(
+            owner_id=p['owner_id'],
+            asset_id=p['asset_id'],
+            amount=p['amount'] * -1
+        )
+        self.session.add(l)
+        e.status = 'done'
+        self.session.commit()
+
+
     def cmd_events(self):
         print('Process events..')
 
@@ -530,122 +684,15 @@ class Main():
             #o = json.loads(e.payload)
             #o = type("JSON", (), json.loads(e.payload))()
 
-            
-            if e.method == 'cancel-order':
-                p = json.loads(e.body)
-                order_id = p['order_id']
-                o = self.session.query(model.Order).get(order_id)
-                print(o.__dict__)
-                o.status = 'canceled'
+            if e.method == 'deposit':
+                self.event_deposit(e)
+            elif e.method == 'withdraw':
+                self.event_withdraw(e)
+            elif e.method == 'cancel-order':
+                self.event_cancel_order(e)
+            elif e.method == 'place-order':
+                self.event_place_order(e)
 
-                e.status = 'done'
-                self.session.commit()
-                continue
-
-            # event add_order
-            #if e.action == 'ao':
-            #    self.add_order()
-            o = json.loads(e.body, object_hook=lambda d: namedtuple('X', d.keys())(*d.values()))
-            demand = Decimal(o.amount)
-
-            # Where
-            where = []
-            order = []
-
-            where.append(model.Order.status.in_(['open','partial']))
-
-            # NO WASH TRADES
-            # Exclude owner's orders from set to be matched
-            where.append(model.Order.owner_id != o.owner_id)
-
-            if o.side == 'sell':
-                where.append(model.Order.side == 'buy')
-                where.append(model.Order.price >= o.price)
-
-                order.append(model.Order.price.desc())
-                order.append(model.Order.id.asc())
-
-            elif o.side == 'buy':
-                where.append(model.Order.side == 'sell')
-                where.append(model.Order.price <= o.price)
-
-                order.append(model.Order.price.asc())
-                order.append(model.Order.id.asc())
-
-            # This query returns book matches, so start slicing thru them
-            q2 = self.session.query(
-                model.Order
-            ).filter(
-                and_(*where)
-            ).order_by(
-                *order
-            )
-            for o2 in q2.all():
-                print("  > %05d %8s %8s %-4s %10d %10d [ %10d ]" % (
-                o2.id, o2.type, o2.status, o2.side, o2.balance, o2.price, demand))
-                # demand 3
-                # has 2: tx for 2, 3-2, 1 demand left
-                # has 12: tx for 1, 1-1, 0 demand left
-                
-                # tx is up to demand amt
-                if not demand:
-                    break
-                
-                tx_amt = o2.balance if demand > o2.balance else demand
-                demand -= tx_amt
-                xx = model.Ledger(
-                    owner_id=1,
-                    amount=tx_amt
-                )
-                print(xx.__dict__)
-                self.session.add(xx)
-
-                yy = model.Trade(
-                    owner_id=1,
-                    market_id=1,
-                    price=o2.price,
-                    amount=tx_amt
-                )
-                self.session.add(yy)
-
-                # then update remaining order amount
-                o2.balance = o2.balance - tx_amt
-                o2.status = self.get_status(o2)
-                print("  X %05d %8s %8s %-4s %10d %10d [ %10d ]" % (
-                o2.id, o2.type, o2.status, o2.side, o2.balance, o2.price, demand))
-                print()
-            
-
-            if Decimal(demand) == Decimal(0):
-                status = 'closed'
-            elif Decimal(demand) != Decimal(o.amount):
-                status = 'partial'
-            else:
-                status = 'open'
-
-            no2 = model.Order(
-                owner_id=o.owner_id,
-                market_id=o.market_id,
-                side=o.side,
-                type='limit',
-                price=o.price,
-                amount=o.amount,
-                balance=demand,
-                status=status
-            )
-            #no.status = self.get_status(no)
-            self.session.add(no2)
-
-            print("new order:")
-            print(no2.__dict__)
-
-            e.status = 'done'
-            #print("-d- %05d %8s %8s %-4s %10d %10d" % (
-            #o.id, o.type, o.status, o.direction, o.amount_left, o.price))
-            #print("%05d %s %8d %5s %s" % (
-            #e.id, e.created, e.owner, e.action, e.payload))
-
-            self.session.commit()
 
     def get_status(self, obj):
         if obj.balance == 0:
