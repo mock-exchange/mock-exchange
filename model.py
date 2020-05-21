@@ -77,7 +77,7 @@ class Owner(Base):
     profile = Column(Text) # json payload
     picture = Column(String(255))
 
-    uuid = Column(String(20), default=shortuuid.uuid(), nullable=True, 
+    uuid = Column(String(20), default=shortuuid.uuid, nullable=True,
         unique=True)
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
@@ -93,7 +93,7 @@ class Event(Base):
     body = Column(Text()) # json payload
     status = Column(Enum('new','done'), default='new')
 
-    uuid = Column(String(20), default=shortuuid.uuid())
+    uuid = Column(String(20), default=shortuuid.uuid)
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
 
