@@ -11,6 +11,7 @@ WITH value AS (
 )
 
 SELECT
+    a.id AS asset_id,
     a.symbol,
     a.name,
     a.icon,
