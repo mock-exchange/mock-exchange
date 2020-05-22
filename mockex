@@ -45,7 +45,7 @@ class Main():
 
     def __init__(self):
 
-        self.engine = create_engine('sqlite:///me.db')
+        self.engine = create_engine('sqlite:///mockex.db')
         self.session = Session(self.engine)
 
         parser = argparse.ArgumentParser(description='Import utility')

@@ -20,7 +20,7 @@ from mocklib import SQL
 app = Flask(__name__, static_folder='foo')
 
 #app.config['STATIC_FOLDER'] = 'foo'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///me.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mockex.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
