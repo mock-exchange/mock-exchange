@@ -45,6 +45,9 @@ class Asset(Base):
     __tablename__ = 'asset'
 
     id = Column(Integer, primary_key=True)
+    uuid = Column(String(20), default=shortuuid.uuid,
+        nullable=False, unique=True, index=True)
+
     symbol = Column(String(10))
     icon = Column(String(50))
     name = Column(String(255))
@@ -57,6 +60,9 @@ class Market(Base):
     __tablename__ = 'market'
 
     id = Column(Integer, primary_key=True)
+    uuid = Column(String(20), default=shortuuid.uuid,
+        nullable=False, unique=True, index=True)
+
     name = Column(String(255), nullable=True)
 
     asset1 = Column(Integer, ForeignKey('asset.id'), nullable=False)
@@ -67,18 +73,17 @@ class Market(Base):
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
 
-class Owner(Base):
-    __tablename__ = 'owner'
+class Account(Base):
+    __tablename__ = 'account'
 
     id = Column(Integer, primary_key=True)
-    username = Column(String(255), nullable=True, unique=True)
-    email = Column(String(255), nullable=True, unique=True)
-    name = Column(String(255), nullable=True)
-    profile = Column(Text) # json payload
-    picture = Column(String(255))
+    uuid = Column(String(20), default=shortuuid.uuid,
+        nullable=False, unique=True, index=True)
 
-    uuid = Column(String(20), default=shortuuid.uuid, nullable=True,
-        unique=True, index=True)
+    email = Column(String(255), nullable=False, unique=True)
+    name = Column(String(255), nullable=False)
+    location = Column(String(255), nullable=False)
+
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
 
@@ -86,6 +91,9 @@ class Event(Base):
     __tablename__ = 'event'
 
     id = Column(Integer, primary_key=True)
+    uuid = Column(String(20), default=shortuuid.uuid,
+        nullable=False, unique=True, index=True)
+
     method = Column(Enum(
         'place-order','cancel-order',
         'deposit', 'withdraw'
@@ -93,10 +101,9 @@ class Event(Base):
     body = Column(Text()) # json payload
     status = Column(Enum('new','done'), default='new')
 
-    owner_id = Column(Integer, ForeignKey('owner.id'), nullable=True)
-    owner = relationship("Owner")
+    account_id = Column(Integer, ForeignKey('account.id'), nullable=True)
+    account = relationship("Account")
 
-    uuid = Column(String(20), default=shortuuid.uuid, unique=True, index=True)
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
 
@@ -110,16 +117,17 @@ class Order(Base): # Append only, except balance & status
         super(Order, self).__init__(**kwargs)
 
     id = Column(Integer, primary_key=True)
-    owner_id = Column(Integer, ForeignKey('owner.id'), nullable=False)
-    owner = relationship("Owner")
+    uuid = Column(String(20), default=shortuuid.uuid,
+        nullable=False, unique=True, index=True)
+
+    account_id = Column(Integer, ForeignKey('account.id'), nullable=False)
+    account = relationship("Account")
     market_id = Column(Integer, ForeignKey('market.id'), nullable=False)
     market = relationship("Market")
     
     price = MoneyColumn.copy()
     amount = MoneyColumn.copy()
     balance = MoneyColumn.copy()
-
-    event_uuid = Column(String(20), nullable=True, unique=True, index=True)
 
     side = Column(Enum('buy','sell'), nullable=False)
     type = Column(Enum('limit','market'), nullable=False)
@@ -133,8 +141,11 @@ class Trade(Base): # Append only
     __tablename__ = 'trade'
 
     id = Column(Integer, primary_key=True)
-    owner_id = Column(Integer, ForeignKey('owner.id'), nullable=False)
-    owner = relationship("Owner")
+    uuid = Column(String(20), default=shortuuid.uuid,
+        nullable=False, unique=True, index=True)
+
+    account_id = Column(Integer, ForeignKey('account.id'), nullable=False)
+    account = relationship("Account")
     market_id = Column(Integer, ForeignKey('market.id'), nullable=False)
     market = relationship("Market")
 
@@ -150,8 +161,11 @@ class Ledger(Base): # Append only
     __tablename__ = 'ledger'
 
     id = Column(Integer, primary_key=True)
-    owner_id = Column(Integer, ForeignKey('owner.id'), nullable=False)
-    owner = relationship("Owner")
+    uuid = Column(String(20), default=shortuuid.uuid,
+        nullable=False, unique=True, index=True)
+
+    account_id = Column(Integer, ForeignKey('account.id'), nullable=False)
+    account = relationship("Account")
 
     asset_id = Column(Integer, ForeignKey('asset.id'), nullable=True)
     asset = relationship("Asset")
