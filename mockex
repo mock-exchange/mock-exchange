@@ -611,7 +611,8 @@ class Main():
             price=o.price,
             amount=o.amount,
             balance=demand,
-            status=status
+            status=status,
+            event_uuid=e.uuid
         )
         #no.status = self.get_status(no)
         self.session.add(no2)
@@ -630,8 +631,9 @@ class Main():
 
     def event_cancel_order(self, e):
         p = json.loads(e.body)
-        order_id = p['order_id']
-        o = self.session.query(model.Order).get(order_id)
+        event_uuid = p['event_uuid']
+        o = self.session.query(model.Order).filter_by(
+            event_uuid=event_uuid).one_or_none()
         print(o.__dict__)
         o.status = 'canceled'
 
