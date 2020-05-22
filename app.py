@@ -26,40 +26,34 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 
-class OwnerSchema(Schema):
+class AccountSchema(Schema):
     id = fields.Int(dump_only=True)
+    uuid = fields.Str(dump_only=True)
     name = fields.Str()
     email = fields.Str()
-    username = fields.Str()
-    picture = fields.Str()
-    profile = fields.Str(dump_only=True)
-
-    """
-    @post_dump
-    def make_json(self, data, **kwargs):
-        print("make_json. data:",type(data), data)
-        if 'profile' in data:
-            data['profile'] = json.loads(data['profile'])
-        return data
-    """
+    title = fields.Str()
+    location = fields.Str()
 
 class AssetSchema(Schema):
     id = fields.Int(dump_only=True)
+    uuid = fields.Str(dump_only=True)
     name = fields.Str()
     symbol = fields.Str()
     icon = fields.Str()
 
 class MarketSchema(Schema):
     id = fields.Int(dump_only=True)
+    uuid = fields.Str(dump_only=True)
     name = fields.Str()
     asset = fields.Nested("AssetSchema")
     uoa = fields.Nested("AssetSchema")
 
 class EventSchema(Schema):
     id = fields.Int(dump_only=True)
+
     status = fields.Str()
     method = fields.Str()
-    owner_id = fields.Int()
+    account_id = fields.Int()
     body = fields.Str()
     created = fields.Str(dump_only=True)
     uuid = fields.Str(dump_only=True)
@@ -67,14 +61,14 @@ class EventSchema(Schema):
 class OrderSchema(Schema):
     id = fields.Int(dump_only=True)
 
-    owner = fields.Nested("OwnerSchema", only=("id", "name"))
+    account = fields.Nested("AccountSchema", only=("id", "name"))
     market = fields.Nested("MarketSchema", only=("id", "name"))
 
     price = fields.Str(required=True)
     amount = fields.Str(required=True)
     balance = fields.Str(dump_only=True)
 
-    event_uuid = fields.Str(dump_only=True)
+    uuid = fields.Str(dump_only=True)
 
     side = fields.Str(required=True)
     type = fields.Str(required=True)
@@ -84,8 +78,10 @@ class OrderSchema(Schema):
 
 class TradeSchema(Schema):
     id = fields.Int(dump_only=True)
+    uuid = fields.Str(dump_only=True)
+
     market = fields.Nested("MarketSchema", only=("id", "name"))
-    #owner = fields.Nested("OwnerSchema", only=("id", "name"))
+    #account = fields.Nested("AccountSchema", only=("id", "name"))
     order = fields.Nested("OrderSchema", only=("id", "status"))
     price = fields.Str(dump_only=True)
     amount = fields.Str(dump_only=True)
@@ -93,7 +89,8 @@ class TradeSchema(Schema):
 
 class LedgerSchema(Schema):
     id = fields.Int(dump_only=True)
-    #owner = fields.Nested("OwnerSchema", only=("id", "name"))
+    uuid = fields.Str(dump_only=True)
+    #account = fields.Nested("AccountSchema", only=("id", "name"))
     order = fields.Nested("OrderSchema", only=("id", "status"))
     trade = fields.Nested("TradeSchema", only=("id",))
     price = fields.Str(dump_only=True)
@@ -118,7 +115,7 @@ for table in db.engine.table_names():
 
 """
 ENTITY = {
-    'owner'  : model.Owner,
+    'account'  : model.Account,
     'asset'  : model.Asset,
     'market' : model.Market,
     'event'  : model.Event,
@@ -129,7 +126,7 @@ ENTITY = {
 """
 
 ENTITY_SCHEMA = {
-    'owner'  : OwnerSchema,
+    'account': AccountSchema,
     'asset'  : AssetSchema,
     'market' : MarketSchema,
     'event'  : EventSchema,
@@ -141,12 +138,12 @@ ENTITY_SCHEMA = {
 @app.route('/api/balance', methods=["GET"])
 def get_balance():
 
-    owner_id = request.args.get('owner_id')
-    if not owner_id:
-        return {"message": "owner_id parameter required"}, 400
+    account_id = request.args.get('account_id')
+    if not account_id:
+        return {"message": "account_id parameter required"}, 400
 
     sql = SQL['balance']
-    rs = db.engine.execute(sql, (owner_id,))
+    rs = db.engine.execute(sql, (account_id,))
 
     result = []
     for row in rs:

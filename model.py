@@ -83,6 +83,7 @@ class Account(Base):
     email = Column(String(255), nullable=False, unique=True)
     name = Column(String(255), nullable=False)
     location = Column(String(255), nullable=False)
+    title = Column(String(255), nullable=False)
 
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)

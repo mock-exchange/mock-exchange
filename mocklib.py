@@ -14,7 +14,7 @@ import model
 ENTITY = {
     'asset': model.Asset,
     'market': model.Market,
-    'owner': model.Owner
+    'account': model.Account
 }
 
 DATA_DIR = 'data'

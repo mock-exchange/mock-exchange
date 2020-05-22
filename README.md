@@ -1,6 +1,6 @@
 # Mock Exchange
 
-Order matching system to investigate information flows.
+Exchange order matching for acedemic purposes.
 
 ## Setup
 
@@ -17,7 +17,15 @@ TODO
 
 ## Deploy
 
-TODO
+First deploy
+```
+$ alembic upgrade head
+$ ./mockex import --entity all
+$ ./mockex import [market] --ohlc=ohlc.csv # historical
+$ ./mockex import [market] --trades=trades.csv
+$ ./mockex [market] fill-order-book  # based on current market rate
+
+```
 
 ## Database Migrations
 

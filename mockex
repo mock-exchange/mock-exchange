@@ -32,7 +32,7 @@ from decimal import Decimal
 ENTITY = {
     'asset': model.Asset,
     'market': model.Market,
-    'owner': model.Owner
+    'account': model.Account
 }
 
 API_ENTITIES = {}
@@ -53,9 +53,24 @@ class Main():
             'import', 'export',
 
             'events',  # process events, run daemon
+                        # option: -daemon
+                       # place-order
+                       # cancel-order
+                       # deposit
+                       # withdraw
+            'static_ohlc', # process to generate static ohlc data
+                        # option: -daemon
             
-            'randbook',
-            'trade', 'test', 'mktrade', 'gettrades',
+            # events
+            # orders (event) [source of book]
+            # trades (order) [source of trades]
+            # ledger (trade, deposit, withdraw)
+
+            # Generate
+            # take a list of trades: datetime,amount,price
+            # to seed orders?
+
+            'randbook', 'trade',
 
             # sql
             'book',
@@ -157,7 +172,7 @@ class Main():
                 price = Decimal(row['price'])
                 amount = int(row['amount'])
                 m = model.Trade(
-                    owner_id=100,
+                    account_id=100,
                     market_id=1,
                     created=dt,
                     price=price,
@@ -177,11 +192,11 @@ class Main():
         market = 1
         market_rate = 8800
 
-        owner = []
-        owner_idx = {}
-        for o in self.session.query(model.Owner).all():
-            owner_idx[o.id] = o.name
-            owner.append(o.id)
+        account = []
+        account_idx = {}
+        for o in self.session.query(model.Account).all():
+            account_idx[o.id] = o.name
+            account.append(o.id)
 
         assets = {
             'usd': {
@@ -199,10 +214,10 @@ class Main():
         self.session.query(model.Account).delete()
         self.session.commit()
 
-        # Create accounts for all owners.
+        # Create accounts for all accounts.
         # Set initial balance from pareto distribution of issue amount.
         shape = 5
-        size = len(owner)
+        size = len(account)
         dist = np.random.pareto(shape, size)
 
         dist_sum = sum(dist)
@@ -213,7 +228,7 @@ class Main():
                 bal = assets[asset]['issue'] * dist_rate
                 bal = math.ceil(bal)
                 idx = assets[asset]['id']
-                a = model.Account(owner=owner[i], asset=idx, balance=bal)
+                a = model.Account(account=account[i], asset=idx, balance=bal)
                 self.session.add(a)
 
         self.session.commit()
@@ -247,7 +262,7 @@ class Main():
             o = model.Order(
                 created=dates[cnt],
                 market=1,
-                owner=r.owner,
+                account=r.account,
                 price=price,
                 direction="sell",
                 #direction="buy",
@@ -280,8 +295,8 @@ class Main():
         where.append(model.Order.status.in_(['open','partial']))
 
         # NO WASH TRADES
-        # Exclude owner's orders from set to be matched
-        where.append(model.Order.owner_id != o.owner_id)
+        # Exclude account's orders from set to be matched
+        where.append(model.Order.account_id != o.account_id)
 
         if o.side == 'sell':
             where.append(model.Order.side == 'buy')
@@ -319,14 +334,14 @@ class Main():
             tx_amt = o2.balance if demand > o2.balance else demand
             demand -= tx_amt
             xx = model.Ledger(
-                owner_id=1,
+                account_id=1,
                 amount=tx_amt
             )
             print(xx.__dict__)
             self.session.add(xx)
 
             yy = model.Trade(
-                owner_id=1,
+                account_id=1,
                 market_id=1,
                 price=o2.price,
                 amount=tx_amt
@@ -349,7 +364,7 @@ class Main():
             status = 'open'
 
         no2 = model.Order(
-            owner_id=o.owner_id,
+            account_id=o.account_id,
             market_id=o.market_id,
             side=o.side,
             type='limit',
@@ -369,7 +384,7 @@ class Main():
         #print("-d- %05d %8s %8s %-4s %10d %10d" % (
         #o.id, o.type, o.status, o.direction, o.amount_left, o.price))
         #print("%05d %s %8d %5s %s" % (
-        #e.id, e.created, e.owner, e.action, e.payload))
+        #e.id, e.created, e.account, e.action, e.payload))
 
         self.session.commit()
 
@@ -389,7 +404,7 @@ class Main():
         p = json.loads(e.body)
 
         l = model.Ledger(
-            owner_id=p['owner_id'],
+            account_id=p['account_id'],
             asset_id=p['asset_id'],
             amount=p['amount']
         )
@@ -401,7 +416,7 @@ class Main():
         p = json.loads(e.body)
 
         l = model.Ledger(
-            owner_id=p['owner_id'],
+            account_id=p['account_id'],
             asset_id=p['asset_id'],
             amount=p['amount'] * -1
         )
