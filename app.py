@@ -57,8 +57,11 @@ class MarketSchema(Schema):
 
 class EventSchema(Schema):
     id = fields.Int(dump_only=True)
+    status = fields.Str()
     method = fields.Str()
+    owner_id = fields.Int()
     body = fields.Str()
+    created = fields.Str(dump_only=True)
     uuid = fields.Str(dump_only=True)
 
 class OrderSchema(Schema):

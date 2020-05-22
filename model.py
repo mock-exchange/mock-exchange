@@ -93,6 +93,9 @@ class Event(Base):
     body = Column(Text()) # json payload
     status = Column(Enum('new','done'), default='new')
 
+    owner_id = Column(Integer, ForeignKey('owner.id'), nullable=True)
+    owner = relationship("Owner")
+
     uuid = Column(String(20), default=shortuuid.uuid, unique=True, index=True)
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
