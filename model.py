@@ -78,7 +78,7 @@ class Owner(Base):
     picture = Column(String(255))
 
     uuid = Column(String(20), default=shortuuid.uuid, nullable=True,
-        unique=True)
+        unique=True, index=True)
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
 
@@ -93,7 +93,7 @@ class Event(Base):
     body = Column(Text()) # json payload
     status = Column(Enum('new','done'), default='new')
 
-    uuid = Column(String(20), default=shortuuid.uuid)
+    uuid = Column(String(20), default=shortuuid.uuid, unique=True, index=True)
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
 
@@ -115,6 +115,8 @@ class Order(Base): # Append only, except balance & status
     price = MoneyColumn.copy()
     amount = MoneyColumn.copy()
     balance = MoneyColumn.copy()
+
+    event_uuid = Column(String(20), nullable=True, unique=True, index=True)
 
     side = Column(Enum('buy','sell'), nullable=False)
     type = Column(Enum('limit','market'), nullable=False)
