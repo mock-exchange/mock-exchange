@@ -71,6 +71,8 @@ class OrderSchema(Schema):
     amount = fields.Str(required=True)
     balance = fields.Str(dump_only=True)
 
+    event_uuid = fields.Str(dump_only=True)
+
     side = fields.Str(required=True)
     type = fields.Str(required=True)
     status = fields.Str(dump_only=True)
