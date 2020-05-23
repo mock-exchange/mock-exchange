@@ -9,7 +9,7 @@ import re
 from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import Session
 
-import model
+from . import model
 
 ENTITY = {
     'asset': model.Asset,

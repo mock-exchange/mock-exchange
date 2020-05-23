@@ -13,17 +13,15 @@ from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError, pre_load
 from marshmallow import post_dump
 
-from mockex import model
-from mockex.lib import SQL
+from . import model
+from .lib import SQL
 
-app = Flask(__name__, static_folder='foo')
-
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mockex.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+#app = Flask(__name__, static_folder='foo')
+mockex = Blueprint('mockex', __name__)
 
 
 #app.config['STATIC_FOLDER'] = 'foo'
-db = SQLAlchemy(app)
+db = SQLAlchemy(mockex)
 
 
 class AccountSchema(Schema):
@@ -98,7 +96,7 @@ class LedgerSchema(Schema):
     created = fields.DateTime(dump_only=True)
 
 
-@app.route('/')
+@mockex.route('/')
 def index():
     return 'Mock Exchange'
 
@@ -135,7 +133,7 @@ ENTITY_SCHEMA = {
     'ledger' : LedgerSchema
 }
 
-@app.route('/api/balance', methods=["GET"])
+@mockex.route('/api/balance', methods=["GET"])
 def get_balance():
 
     account_id = request.args.get('account_id')
@@ -152,8 +150,8 @@ def get_balance():
     return jsonify(result)
 
 
-@app.route('/api/last24/<int:market_id>', methods=["GET"])
-@app.route('/api/last24', methods=["GET"])
+@mockex.route('/api/last24/<int:market_id>', methods=["GET"])
+@mockex.route('/api/last24', methods=["GET"])
 def get_last24(market_id = None):
 
     sql = SQL['last24']
@@ -178,7 +176,7 @@ def get_last24(market_id = None):
     return jsonify(result)
 
 
-@app.route('/api/ohlc', methods=["GET"])
+@mockex.route('/api/ohlc', methods=["GET"])
 def get_ohlc():
 
     market_id = request.args.get('market_id')
@@ -280,7 +278,7 @@ def get_ohlc():
     return jsonify(result)
 
 
-@app.route('/api/book', methods=["GET"])
+@mockex.route('/api/book', methods=["GET"])
 def get_book():
 
     market_id = request.args.get('market_id')
@@ -297,7 +295,7 @@ def get_book():
     return jsonify(result)
 
 
-@app.route('/api/<string:entity>/<int:pk>', methods=["GET"])
+@mockex.route('/api/<string:entity>/<int:pk>', methods=["GET"])
 def get_entity_id(entity, pk):
     if entity not in ENTITY.keys():
         return {"message": "No such entity"}, 400
@@ -313,7 +311,7 @@ def get_entity_id(entity, pk):
     return jsonify(result)
 
 
-@app.route('/api/<string:entity>', methods=["GET"])
+@mockex.route('/api/<string:entity>', methods=["GET"])
 def get_entity_list(entity):
     if entity not in ENTITY.keys():
         return {"message": "No such entity"}, 400
@@ -382,7 +380,7 @@ def get_entity_list(entity):
 
     return jsonify(result)
 
-@app.route("/api/<string:entity>", methods=["POST"])
+@mockex.route("/api/<string:entity>", methods=["POST"])
 def create_entity(entity):
     if entity not in ENTITY.keys():
         return {"message": "No such entity"}, 400
@@ -408,6 +406,6 @@ def create_entity(entity):
     return {"message": "Created new " + entity + ".", entity: result}
 
 
-if __name__ == '__main__':
-    app.run(debug=True)
+#if __name__ == '__main__':
+#    app.run(debug=True)
 
