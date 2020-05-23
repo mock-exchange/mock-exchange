@@ -5,7 +5,7 @@ NAME="mockex"
 DIR=/home/eric/Work/mock-exchange/mock-exchange
 USER=eric # run as
 GROUP=eric # run as webapps
-NUM_WORKERS=1
+NUM_WORKERS=5
 
 echo "Starting $NAME as `whoami`"
 
