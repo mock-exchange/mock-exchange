@@ -160,13 +160,15 @@ def get_last24(market_id = None):
 
     result = []
     where = ''
+    sub_where = ''
     values = []
 
     if market_id:
-        where = 'AND market_id=?'
+        where = 'AND m.id=?'
+        sub_where = 'AND market_id=?'
         values.append((market_id, market_id))
 
-    sql = sql.format(where=where)
+    sql = sql.format(where=where, sub_where=sub_where)
     rs = db.engine.execute(sql, values)
 
     if market_id:

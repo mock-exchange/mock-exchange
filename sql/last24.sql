@@ -20,7 +20,7 @@ LEFT JOIN (
     FROM trade
     WHERE
         created BETWEEN datetime(created, '-1 day') AND datetime()
-        {where}
+        {sub_where}
     WINDOW win as (
         -- ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
         PARTITION BY market_id
