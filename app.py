@@ -13,8 +13,8 @@ from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError, pre_load
 from marshmallow import post_dump
 
-from mockex import model
-from mockex.lib import SQL
+import model
+from lib import SQL
 
 app = Flask(__name__, static_folder='foo')
 

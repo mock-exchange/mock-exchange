@@ -1,6 +1,6 @@
 import csv
 from datetime import datetime, timedelta, time
-import numpy as np
+#import numpy as np
 import math
 from random import randrange, randint
 import os
@@ -9,7 +9,7 @@ import re
 from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import Session
 
-from . import model
+import model
 
 ENTITY = {
     'asset': model.Asset,
