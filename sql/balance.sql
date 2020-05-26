@@ -15,6 +15,7 @@ SELECT
     a.symbol,
     a.name,
     a.icon,
+    a.scale,
     COALESCE(SUM(l.amount),0) AS balance,
     0 AS reserve,
     COALESCE(value.price,0) AS last_price,
