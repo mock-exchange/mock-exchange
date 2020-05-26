@@ -16,7 +16,8 @@ from marshmallow import post_dump
 import model
 from lib import SQL
 
-app = Flask(__name__, static_folder='foo')
+#app = Flask(__name__, static_folder='foo')
+app = Flask(__name__, static_folder='build', static_url_path='/')
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mockex.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -40,6 +41,7 @@ class AssetSchema(Schema):
     name = fields.Str()
     symbol = fields.Str()
     icon = fields.Str()
+    scale = fields.Int()
 
 class MarketSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -96,12 +98,6 @@ class LedgerSchema(Schema):
     price = fields.Str(dump_only=True)
     amount = fields.Str(dump_only=True)
     created = fields.DateTime(dump_only=True)
-
-
-@app.route('/')
-def index():
-    return 'Mock Exchange'
-
 
 """
 for table in model.Base.metadata.tables.keys():
@@ -408,6 +404,18 @@ def create_entity(entity):
     entity_out = db.session.query(Entity).get(new_entity.id)
     result = EntitySchema().dump(entity_out)
     return {"message": "Created new " + entity + ".", entity: result}
+
+
+#@app.route('/', defaults={'path': ''})
+#@app.route('/<path>')
+@app.route('/')
+def index():
+    #return 'You want path: %s' % path
+    return app.send_static_file('index.html')
+
+#@app.errorhandler(404)
+#def not_found(e):
+#    return app.send_static_file('index.html')
 
 
 if __name__ == '__main__':
