@@ -2,13 +2,13 @@
 SELECT
     m.id AS market_id,
     m.name,
-    open,
-    MAX(price) AS high,
-    MIN(price) AS low,
-    close,
-    SUM(amount) AS volume,
-    AVG(price) AS avg_price,
-    ((close - open) / open) AS change
+    COALESCE(open,0) AS open,
+    COALESCE(MAX(price),0) AS high,
+    COALESCE(MIN(price),0) AS low,
+    COALESCE(close,0) AS close,
+    COALESCE(SUM(amount),0) AS volume,
+    COALESCE(AVG(price),0) AS avg_price,
+    COALESCE((close - open) / open,0) AS change
 FROM market AS m
 LEFT JOIN (
     SELECT
