@@ -21,6 +21,7 @@ from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import Session, joinedload
 
 import model
+from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
 from lib import random_dates, SQL
 
 from decimal import Decimal
@@ -50,6 +51,13 @@ class Main():
 
         parser = argparse.ArgumentParser(description='Import utility')
         parser.add_argument("action", choices=[
+            'maker',
+            # maker
+            #    --speed 1m
+            #    --volume 1k
+            #    --pattern [daytime, weekends]
+            #    --source TRADES_FILE
+
             'import', 'export',
 
             'events',  # process events, run daemon
@@ -83,6 +91,45 @@ class Main():
         #print(self.args)
         getattr(self, 'cmd_' + self.args.action)()
     
+
+    def cmd_maker(self):
+        print('Fake market maker')
+        
+        db = self.session
+
+        market = db.query(Market).filter_by(
+            name='BTCUSD').one_or_none()
+
+        # TODO: Change to order by created.desc()
+        last_trade = db.query(Trade).order_by(Trade.id.desc()).first()
+
+        print("Last price:",last_trade.price)
+
+        while True:
+            last_trade = db.query(Trade).order_by(Trade.id.desc()).first()
+            account_id = random.randrange(10,30)
+            side = random.choice(['buy', 'sell'])
+            price = last_trade.price + random.randrange(-100,100)
+            amount = random.randrange(1,10)
+            e = model.Event(
+                account_id=account_id,
+                method='place-order',
+                body=json.dumps({
+                    'account_id': account_id,
+                    'market_id': market.id,
+                    'price': float(price),
+                    'amount': amount,
+                    'side': side
+                })
+            )
+            print("%s %s %s @ %s" % (e.method, side, amount, price))
+            self.session.add(e)
+            self.session.commit()
+
+            seconds = random.randrange(1,3)
+            print("Sleep %s seconds.." % (seconds,))
+            time.sleep(seconds)
+
 
     def cmd_book(self):
         sql = SQL['book']
@@ -433,27 +480,31 @@ class Main():
         #       A. Foreach order where()  orderby(price)
         #  opposite direction (buy vs sell)
         #  and price <=> our price
+        while True:
 
-        q = self.session.query(
-            model.Event
-        ).filter_by(
-            status='new'
-        ).order_by(model.Event.id)
+            q = self.session.query(
+                model.Event
+            ).filter_by(
+                status='new'
+            ).order_by(model.Event.id)
 
-        for e in q.all():
-            print("%05d %s %8s\n%s" % (
-            e.id, e.created, e.method, e.body))
-            #o = json.loads(e.payload)
-            #o = type("JSON", (), json.loads(e.payload))()
+            for e in q.all():
+                print("%05d %s %8s\n%s" % (
+                e.id, e.created, e.method, e.body))
+                #o = json.loads(e.payload)
+                #o = type("JSON", (), json.loads(e.payload))()
 
-            if e.method == 'deposit':
-                self.event_deposit(e)
-            elif e.method == 'withdraw':
-                self.event_withdraw(e)
-            elif e.method == 'cancel-order':
-                self.event_cancel_order(e)
-            elif e.method == 'place-order':
-                self.event_place_order(e)
+                if e.method == 'deposit':
+                    self.event_deposit(e)
+                elif e.method == 'withdraw':
+                    self.event_withdraw(e)
+                elif e.method == 'cancel-order':
+                    self.event_cancel_order(e)
+                elif e.method == 'place-order':
+                    self.event_place_order(e)
+
+            print("Sleep 2 seconds..")
+            time.sleep(2)
 
 
     def get_status(self, obj):
