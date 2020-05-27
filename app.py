@@ -92,7 +92,9 @@ class TradeSchema(Schema):
 class LedgerSchema(Schema):
     id = fields.Int(dump_only=True)
     uuid = fields.Str(dump_only=True)
-    #account = fields.Nested("AccountSchema", only=("id", "name"))
+    #account_id = fields.Int()
+    account = fields.Nested("AccountSchema", only=("id", "name"))
+    asset = fields.Nested("AssetSchema")
     order = fields.Nested("OrderSchema", only=("id", "status"))
     trade = fields.Nested("TradeSchema", only=("id",))
     price = fields.Str(dump_only=True)
