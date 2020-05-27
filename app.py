@@ -27,6 +27,8 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 
+dt_format = '%Y-%m-%dT%H:%M:%SZ'
+
 class AccountSchema(Schema):
     id = fields.Int(dump_only=True)
     uuid = fields.Str(dump_only=True)
@@ -57,8 +59,8 @@ class EventSchema(Schema):
     method = fields.Str()
     account_id = fields.Int()
     body = fields.Str()
-    created = fields.Str(dump_only=True)
     uuid = fields.Str(dump_only=True)
+    created = fields.DateTime(dump_only=True, format=dt_format)
 
 class OrderSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -75,8 +77,8 @@ class OrderSchema(Schema):
     side = fields.Str(required=True)
     type = fields.Str(required=True)
     status = fields.Str(dump_only=True)
-    created = fields.DateTime(dump_only=True)
-    modified = fields.DateTime(dump_only=True)
+    created = fields.DateTime(dump_only=True, format=dt_format)
+    modified = fields.DateTime(dump_only=True, format=dt_format)
 
 class TradeSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -87,7 +89,7 @@ class TradeSchema(Schema):
     order = fields.Nested("OrderSchema", only=("id", "status"))
     price = fields.Str(dump_only=True)
     amount = fields.Str(dump_only=True)
-    created = fields.DateTime(dump_only=True)
+    created = fields.DateTime(dump_only=True, format=dt_format)
 
 class LedgerSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -99,7 +101,7 @@ class LedgerSchema(Schema):
     trade = fields.Nested("TradeSchema", only=("id",))
     price = fields.Str(dump_only=True)
     amount = fields.Str(dump_only=True)
-    created = fields.DateTime(dump_only=True)
+    created = fields.DateTime(dump_only=True, format=dt_format)
 
 """
 for table in model.Base.metadata.tables.keys():
