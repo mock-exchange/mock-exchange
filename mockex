@@ -106,14 +106,15 @@ class Main():
             # TODO: Change to order by created.desc()
             last_trade = db.query(Trade).filter_by(
                 market_id=market.id).order_by(Trade.id.desc()).first()
-            last_price = 0
+            last_price = 12
             if (last_trade):
                 last_price = last_trade.price
 
             account_id = random.randrange(1000000,5000000)
-            side = random.choice(['buy', 'sell'])
-            price = abs(last_price + random.randrange(-100,100))
-            amount = random.randrange(1,30)
+            side = random.choice(['buy', 'sell', 'sell'])
+            #price = abs(last_price + random.randrange(-100,100))
+            price = abs(float(last_price) + random.uniform(-2,2))
+            amount = random.uniform(1,30)
             e = model.Event(
                 account_id=account_id,
                 method='place-order',
@@ -129,7 +130,7 @@ class Main():
             self.session.add(e)
             self.session.commit()
 
-            seconds = random.uniform(1,5)
+            seconds = random.uniform(.1,1)
             print("Sleep %s seconds.." % (seconds,))
             time.sleep(seconds)
 
@@ -344,7 +345,7 @@ class Main():
         where = []
         order = []
 
-        where.append(model.Order.market_id != o.market_id)
+        where.append(model.Order.market_id == o.market_id)
 
         where.append(model.Order.status.in_(['open','partial']))
 
@@ -376,8 +377,9 @@ class Main():
             *order
         )
         for o2 in q2.all():
-            print("  > %05d %8s %8s %-4s %10d %10d [ %10d ]" % (
-            o2.id, o2.type, o2.status, o2.side, o2.balance, o2.price, demand))
+            print("  > %05d %8s %8s %-4s %10d %10d [ %10d ] %s" % (
+            o2.id, o2.type, o2.status, o2.side, o2.balance, o2.price, 
+            demand, o2.market_id))
             # demand 3
             # has 2: tx for 2, 3-2, 1 demand left
             # has 12: tx for 1, 1-1, 0 demand left
@@ -553,9 +555,7 @@ class Main():
 
         for m in q.all():
             self.markets[m.id] = m
-            print(m.id, m.created, type(m.created))
 
-        return
         while True:
 
             events = db.query(Event).filter_by(status='new').\
