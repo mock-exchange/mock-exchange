@@ -36,6 +36,7 @@ ohlc AS (
 )
 
 SELECT
+    strftime('%Y-%m-%dT%H:%M:%SZ', period) as dt,
     CAST(strftime('%s',period) AS INT) as time,
     COALESCE(ohlc.open,0) as open,
     COALESCE(ohlc.high,0) as high,
