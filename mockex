@@ -17,14 +17,18 @@ from collections import namedtuple
 import shortuuid
 import time
 
-from sqlalchemy import create_engine, and_, or_
+from sqlalchemy import create_engine, and_, or_, func
 from sqlalchemy.orm import Session, joinedload
 
 import model
 from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
-from lib import random_dates, SQL
+from lib import random_dates, SQL, intervals
+from ohlc import OHLC
+
 
 from decimal import Decimal
+
+import arrow
 
 #import logging
 #logging.basicConfig()
@@ -62,6 +66,8 @@ class Main():
 
             'import', 'export',
 
+            'ohlc',
+
             'events',  # process events, run daemon
                         # option: -daemon
                        # place-order
@@ -93,6 +99,11 @@ class Main():
         #print(self.args)
         getattr(self, 'cmd_' + self.args.action)()
     
+
+    def cmd_ohlc(self):
+        print('make static ohlc')
+        
+        OHLC(self.session).generate_cache()
 
     def cmd_maker(self):
         print('Fake market maker')

@@ -34,6 +34,7 @@ for filename in os.listdir(SQL_ROOT):
       f.close()
 
 
+intervals = ['1m','5m','15m','1h','6h','1d']
 
 def random_dates(count, start=None, end=None):
     if not start:

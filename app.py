@@ -15,6 +15,7 @@ from marshmallow import post_dump
 
 import model
 from lib import SQL
+from ohlc import OHLC
 
 #app = Flask(__name__, static_folder='foo')
 app = Flask(__name__, static_folder='build', static_url_path='/')
@@ -195,92 +196,9 @@ def get_ohlc():
         params = ' and '.join(missing)
         return {"message": "parameter(s) " + params + " required"}, 400
 
-    sql = SQL['ohlc']
-
-    # Target 140 - 200 intervals total
-    # 1m  - 140  - 200 minutes
-    # 5m  - 700  - 1000 minutes
-    # 15m - 2100 - 3000 minutes
-    # 1h  - 140  - 200 hours
-    # 6h  - 960  - 1200 hours
-    # 1d  - 140  - 200 days
-    intervals = {
-        '1m': """
-            CAST(strftime('%Y-%m-%d %H:%M', {value}) AS TEXT) || ':00'
-        """,
-        '5m': """
-            CAST(strftime('%Y-%m-%d %H:', {value}) AS TEXT) ||
-            CAST(printf('%02d', (
-            CAST(strftime('%M',{value}) AS INT) / 5) * 5) AS TEXT) || ':00'
-        """,
-        '15m': """
-            CAST(strftime('%Y-%m-%d %H:', {value}) AS TEXT) ||
-            CAST(printf('%02d', (
-            CAST(strftime('%M',{value}) AS INT) / 15) * 15) AS TEXT) || ':00'
-        """,
-        '1h': """
-            CAST(strftime('%Y-%m-%d %H', {value}) AS TEXT) || ':00:00'
-        """,
-        '6h': """
-            CAST(strftime('%Y-%m-%d ', {value}) AS TEXT) ||
-            CAST(printf('%02d', (
-            CAST(strftime('%H',{value}) AS INT) / 6) * 6) AS TEXT) || ':00:00'
-        """,
-        '1d': """
-            date({value}) || ' 00:00:00'
-        """
-    }
-    steps = {
-        '1m' : '+1 minute',
-        '5m' : '+5 minute',
-        '15m': '+15 minutes',
-        '1h' : '+1 hour',
-        '6h' : '+6 hours',
-        '1d' : '+1 day'
-    }
-    steps_int = {
-        '1m' : 1,
-        '5m' : 5,
-        '15m': 15,
-        '1h' : 1,
-        '6h' : 6,
-        '1d' : 1
-    }
-    steps_xx = {
-        '1m' : 'minutes',
-        '5m' : 'minutes',
-        '15m': 'minutes',
-        '1h' : 'hours',
-        '6h' : 'hours',
-        '1d' : 'days'
-    }
-
-    step_val = steps_int[interval] * 500
-    
-    start = "datetime('now', '-{} {}')".format(step_val, steps_xx[interval])
-    sqlparts = {
-        'start': intervals[interval].format(value=start),
-        'end'  : intervals[interval].format(value="'now'"),
-        'step': steps[interval],
-        'interval': intervals[interval].format(value='created')
-    }
-    sql = sql.format(**sqlparts)
-
-    print(sql)
-    q = db.engine.execute(sql, (market_id,))
-
-    result = []
-    for row in q.fetchall():
-        d = dict(row)
-        # chart library doesn't support empty fields yet
-        # https://github.com/tradingview/lightweight-charts/pull/294
-        #if d.get('open') == 0:
-        #    for k in ('open','high','low','close','value','volume'):
-        #        d.pop(k)
-        result.append(d)
+    result = OHLC(db.session).get(market_id, interval)
 
     return jsonify(result)
-
 
 @app.route('/api/book', methods=["GET"])
 def get_book():
