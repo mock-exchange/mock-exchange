@@ -196,7 +196,7 @@ def get_ohlc():
         params = ' and '.join(missing)
         return {"message": "parameter(s) " + params + " required"}, 400
 
-    result = OHLC(db.session).get(market_id, interval)
+    result = OHLC(db.session).get_cached(market_id, interval)
 
     return jsonify(result)
 

@@ -91,20 +91,9 @@ class OHLC:
 
         print("Market %s %s -> %s" % (m.name, m.first_trade, m.last_trade))
         for interval in INTERVAL_AGGREGATE.keys():
-            (frame, fmt) = INTERVAL_AGGREGATE[interval]
-            ranspans = arrow.Arrow.span_range(
-                frame, m.first_trade, m.last_trade
-            )
-
-            for rs in ranspans:
-                out = ''
-                if isinstance(fmt, types.FunctionType):
-                    out = fmt(rs[0])
-                else:
-                    out = rs[0].strftime(fmt)
-                rel_path = out + '.json'
+            for sr in self._aggsr(interval, m.first_trade, m.last_trade):
+                rel_path = self._aggfmt(sr[0], interval)
                 to_path = OUT_DIR / m.name.lower() / interval / rel_path
-                to_file = os.path.basename(to_path)
                 to_dir = os.path.dirname(to_path)
 
                 # If file already exists, skip
@@ -115,9 +104,9 @@ class OHLC:
                     os.makedirs(to_dir)
 
                 print("%s %-3s %s %-17s" % (m.name.lower(), interval,
-                    rs[0], rel_path), end='')
+                    sr[0], rel_path), end='')
 
-                r = self.get(m.id, interval, rs[0], rs[1])
+                r = self.get(m.id, interval, sr[0], sr[1])
                 with open(to_path, 'w') as f:
                     f.write(json.dumps(r, sort_keys=True, indent=4))
                 
@@ -130,7 +119,41 @@ class OHLC:
 
         print()
 
-    def get(self, market_id, interval, start = None, end = None):
+    def _aggsr(self, interval, start, end):
+        (frame, fmt) = INTERVAL_AGGREGATE[interval]
+        ranspans = arrow.Arrow.span_range(
+            frame, start, end
+        )
+        return ranspans
+
+    def _aggfmt(self, dt, interval):
+        (frame, fmt) = INTERVAL_AGGREGATE[interval]
+        out = ''
+        if isinstance(fmt, types.FunctionType):
+            out = fmt(dt)
+        else:
+            out = dt.strftime(fmt)
+        return out + '.json'
+
+    def get_cached(self, market_id, interval, start=None, end=None):
+        if (not start or not end):
+            (start, end) = self.get_date_range(interval)
+
+        m = self.db.query(Market).get(market_id)
+
+        results = []
+        for sr in self._aggsr(interval, start, end):
+            rel_path = self._aggfmt(sr[0], interval)
+            to_path = OUT_DIR / m.name.lower() / interval / rel_path
+
+            if os.path.exists(to_path):
+                with open(to_path, 'r') as f:
+                    page = json.loads(f.read())
+                    results.extend(page)
+
+        return results
+
+    def get(self, market_id, interval, start=None, end=None):
 
         if (not start or not end):
             (start, end) = self.get_date_range(interval)
