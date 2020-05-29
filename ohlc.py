@@ -32,7 +32,7 @@ for i in INTERVALS:
         attr
     ]
 
-FRAME_COUNT = 200
+FRAME_COUNT = 500
 
 """
 /1d/YYYY        - query by Y (365 rows) more?
@@ -42,6 +42,13 @@ FRAME_COUNT = 200
 /5m/YYYY/MMDD   - query by D (280 rows)
 /1m/YYYY/MMDDHH - query by H (60 rows) I guess by hour
 (smaller INTERVALS only seem useful for real time watching)
+
+ 1d/YYYY/YYYY.json
+ 6h/YYYY/QQ/YYYY-QQ.json
+ 1h/YYYY/MM/YYYY-MM.json
+15m/YYYY/WW/YYYY-WW.json
+ 5m/YYYY/MM/DD/YYYY-MM-DD.json
+ 1m/YYYY/MM/DD/HH/YYYY-MM-DDTHH.json
 """
 
 INTERVAL_AGGREGATE = {
@@ -161,8 +168,10 @@ class OHLC:
         ATTR_WORD[attr]
 
         sqlparts = {
-            'start': "datetime('{}')".format(start),
-            'end': "datetime('{}')".format(end),
+            'start': dt_func[interval].format(value="datetime('"+str(start)+"')"),
+            'end': dt_func[interval].format(value="datetime('"+str(end)+"')"),
+            #'start': "datetime('{}')".format(start),
+            #'end': "datetime('{}')".format(end),
             'step': "+{} {}".format(num, ATTR_WORD[attr]),
             'interval': dt_func[interval].format(value='created')
         }
@@ -172,6 +181,8 @@ class OHLC:
         q = conn.execute(sql, (market_id,))
 
         result = []
+
+        last_price = 0
         for row in q.fetchall():
             d = dict(row)
             # chart library doesn't support empty fields yet
@@ -179,7 +190,24 @@ class OHLC:
             #if d.get('open') == 0:
             #    for k in ('open','high','low','close','value','volume'):
             #        d.pop(k)
+            if d['close'] == 0:
+                for k in ('open','high','low','close'):
+                    d[k] = last_price
+
+            last_price = d['close']
             result.append(d)
+        
+        # Ugly hack to account for issue 294 above
+        result.reverse()
+        last_price = 0
+        for i, d in enumerate(result):
+            if d['open'] == 0:
+                for k in ('open','high','low','close'):
+                    result[i][k] = last_price
+
+            last_price = d['open']
+
+        result.reverse()
 
         return result
 
