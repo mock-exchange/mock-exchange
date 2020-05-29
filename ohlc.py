@@ -5,6 +5,8 @@ import json
 import humanize
 import re
 from datetime import datetime, timedelta
+import math
+import types
 
 from sqlalchemy import create_engine, and_, or_, func
 from sqlalchemy.orm import Session, joinedload
@@ -30,6 +32,7 @@ for i in INTERVALS:
         attr
     ]
 
+FRAME_COUNT = 200
 
 """
 /1d/YYYY        - query by Y (365 rows) more?
@@ -43,7 +46,7 @@ for i in INTERVALS:
 
 INTERVAL_AGGREGATE = {
     '1d'  : ('year',    '%Y'),
-    #'6d'  : ('quarter', ''),
+    '6h'  : ('quarter', lambda dt: dt.strftime('%Y/Q') + str(math.ceil(dt.month/3))),
     '1h'  : ('month',   '%Y/%m'),
     '15m' : ('week',    '%Y/%W'),
     '5m'  : ('day',     '%Y/%m/%d'),
@@ -58,7 +61,7 @@ class OHLC:
 
         (num, attr) = INTERVAL_PARTS[interval]
         end = datetime.utcnow().replace(microsecond=0)
-        diff = {ATTR_WORD[attr]: (num * 500)}
+        diff = {ATTR_WORD[attr]: (num * FRAME_COUNT)}
         start = end - timedelta(**diff)
 
         return (start, end)
@@ -87,7 +90,11 @@ class OHLC:
             )
 
             for rs in ranspans:
-                out = rs[0].strftime(fmt)
+                out = ''
+                if isinstance(fmt, types.FunctionType):
+                    out = fmt(rs[0])
+                else:
+                    out = rs[0].strftime(fmt)
                 rel_path = out + '.json'
                 to_path = OUT_DIR / m.name.lower() / interval / rel_path
                 to_file = os.path.basename(to_path)
