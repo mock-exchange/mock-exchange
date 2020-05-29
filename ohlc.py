@@ -89,6 +89,8 @@ class OHLC:
         if not os.path.exists(OUT_DIR):
             os.mkdir(OUT_DIR)
 
+        now = arrow.utcnow()
+
         print("Market %s %s -> %s" % (m.name, m.first_trade, m.last_trade))
         for interval in INTERVAL_AGGREGATE.keys():
             for sr in self._aggsr(interval, m.first_trade, m.last_trade):
@@ -97,7 +99,7 @@ class OHLC:
                 to_dir = os.path.dirname(to_path)
 
                 # If file already exists, skip
-                if os.path.exists(to_path):
+                if os.path.exists(to_path) and now > sr[1]:
                     continue
 
                 if not os.path.exists(to_dir):
