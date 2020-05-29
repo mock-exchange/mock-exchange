@@ -96,6 +96,7 @@ class OHLC:
             for sr in self._aggsr(interval, m.first_trade, m.last_trade):
                 rel_path = self._aggfmt(sr[0], interval)
                 to_path = OUT_DIR / m.name.lower() / interval / rel_path
+                to_tmp = str(to_path) + '.tmp'
                 to_dir = os.path.dirname(to_path)
 
                 # If file already exists, skip
@@ -109,8 +110,13 @@ class OHLC:
                     sr[0], rel_path), end='')
 
                 r = self.get(m.id, interval, sr[0], sr[1])
-                with open(to_path, 'w') as f:
-                    f.write(json.dumps(r, sort_keys=True, indent=4))
+                f = open(to_tmp, 'w')
+                f.write(json.dumps(r))
+                f.flush()
+                os.fsync(f.fileno())
+                f.close()
+
+                os.rename(to_tmp, to_path)
                 
                 rows = len(r)
                 size = os.path.getsize(to_path)
