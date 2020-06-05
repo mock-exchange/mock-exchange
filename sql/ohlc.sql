@@ -30,7 +30,7 @@ ohlc AS (
             price
         FROM trade
         WHERE market_id = ?
-        -- AND created BETWEEN
+        AND created BETWEEN {start} AND {end}
     ) AS iv
     window w AS (partition BY iv.time)
 )

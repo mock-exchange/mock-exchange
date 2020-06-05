@@ -5,6 +5,7 @@ import json
 import humanize
 import re
 from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 import math
 import types
 import time
@@ -66,7 +67,7 @@ INTERVAL_AGGREGATE = {
     '1d'  : ('year',    '%Y'),
     '6h'  : ('quarter', lambda dt: dt.strftime('%Y/Q') + str(math.ceil(dt.month/3))),
     '1h'  : ('month',   '%Y/%m'),
-    '15m' : ('week',    '%Y/%W'),
+    '15m' : ('week',    '%Y/W%W'),
     '5m'  : ('day',     '%Y/%m/%d'),
     #'1m'  : ('hour',    '%Y/%m/%d/%H'),
 }
@@ -93,9 +94,45 @@ TRUNCATE = {
     '5m': '5_minute'
 }
 
+JSONL_KEYS = ('dt', 'time', 'open', 'high', 'low', 'close', 'volume', 'value')
+
 class OHLC:
     def __init__(self, session):
         self.db = session
+
+        self.now = datetime.utcnow()
+
+    def get_range(self, interval, start, end):
+        (num, attr) = INTERVAL_PARTS[interval]
+        dt = truncate(start, TRUNCATE[interval])
+        items = []
+
+        while dt < end:
+            items.append(dt)
+            diff = {ATTR_WORD[attr]: num}
+            dt = dt + timedelta(**diff)
+
+        return items
+
+    def get_span_range(self, interval, start, end):
+        (frame, fmt) = INTERVAL_AGGREGATE[interval]
+        dt = truncate(start, frame)
+        spans = []
+
+        while dt < end:
+            if frame == 'quarter':
+                diff = {'months': 3}
+            else:
+                diff = {frame + 's': 1}
+
+            spans.append((
+                dt, (dt + relativedelta(**diff)) - relativedelta(seconds=1)
+            ))
+
+            dt = dt + relativedelta(**diff)
+
+        return spans
+
 
     def get_date_range(self, interval):
 
@@ -112,7 +149,7 @@ class OHLC:
             Market.name,
             func.min(Trade.created).label('first_trade'),
             func.max(Trade.created).label('last_trade')
-        ).join(Trade).\
+        ).join(Trade).filter(Trade.market_id==2).\
         group_by(Market.id)
 
         for market in q.all():
@@ -137,28 +174,47 @@ class OHLC:
         last_file = {}
         last_lines = {}
         last_row = {}
-        for interval in INTERVALS:
-            my_path = str(OUT_DIR / m.name.lower() / interval / '**/*.jsonl')
+        for i in INTERVALS:
+            print("<<",i,">>")
+            my_path = str(OUT_DIR / m.name.lower() / i / '**/*.jsonl')
             files = sorted(glob.glob(my_path, recursive=True))
-            print(interval,':',files[-1])
-            last_file[interval] = files[-1]
+            print("files:",len(files))
 
-            with open(last_file[interval]) as f:
-                last_lines[interval] = f.readlines()
+            if not len(files):
+                raise ValueError(
+                    'Files missing in {} for {}.'.format(i, m.name)
+                )
+            print(files[-1])
+            last_file[i] = files[-1]
 
-            last_row[interval] = json.loads(last_lines[interval][-1])
-            print("XXXXXXXXXXX> ",last_row[interval])
+            with open(last_file[i]) as f:
+                last_lines[i] = f.read().splitlines()
+
+            last_row[i] = json.loads(last_lines[i][-1])
+        
         # 1a. Validate latest state (all levels should be a subset)
         smallest_period = json.loads(last_lines[INTERVALS[0]][-1])
-        smallest_dt = dateutil.parser.parse(smallest_period['dt'])
-        for i in state.keys():
-            this_period = last_lines[i][-1]
-            this_dt = dateutil.parser.parse(this_period['dt'])
-            this_dt = truncate(this_dt, TRUNCATE[i])
-            if smallest_dt != this_dt:
+        smallest_dt = dateutil.parser.parse(smallest_period['dt'], ignoretz=True)
+        print('smallest_dt:',smallest_dt,smallest_dt.tzinfo)
+
+        print('VALIDATE')
+        for i in INTERVALS:
+            print("<<",i,">>")
+            this_period = json.loads(last_lines[i][-1])
+            #print("this_period:",this_period)
+            #print("this_period['dt']:",this_period['dt'])
+            this_dt = dateutil.parser.parse(this_period['dt'], ignoretz=True)
+            
+            compare_dt = truncate(smallest_dt, TRUNCATE[i])
+            print('compare_dt:',compare_dt,compare_dt.tzinfo)
+            print('this_dt   :',this_dt,this_dt.tzinfo)
+            if compare_dt != this_dt:
                 raise ValueError(
-                    'Interval state {} for {} not valid.'.format(i, m.name)
+                    "Last row {} doesn't match in {} for {}".format(
+                        this_dt, i, m.name)
                 )
+            print()
+
 
         # 2. Get next batch of trades
         q = self.db.query(Trade).filter(Trade.market_id == m.id)
@@ -178,6 +234,7 @@ class OHLC:
 
         updates = {}
         for i in INTERVALS:
+            updates[i] = {}
             for key, group in groupby(trades, key=lambda x: truncate(x.created, TRUNCATE[i])):
                 print("[",i,"]")
                 print("**",key, type(key))
@@ -194,12 +251,40 @@ class OHLC:
                     'last_trade_id' : ids[-1]
                 }
                 print(data)
-                if i not in updates:
-                    updates[i] = []
-                updates[i].append(data)
+                updates[i][key] = data
 
         print("groupby took %f seconds" % (time.time() - begin,))
 
+        # Merge update rows with aggsr
+        # fill in empties
+
+        # If there are no trades we need to create empty periods
+        # between the last row and current period.
+        if len(trades) == 0:
+            start = smallest_dt
+            end = self.now
+        else:
+            start = trades[0].created
+            end = trades[-1].created
+
+        print('trades', len(trades))
+        print(start, type(start), start.tzinfo)
+        print(end, type(end), end.tzinfo)
+
+        all_updates = OrderedDict()
+        for i in INTERVALS:
+            print("[",i,"]")
+            if i not in all_updates:
+                all_updates[i] = OrderedDict()
+            for dt in self.get_range(i, start, end):
+                #print(">",dt, type(dt), dt in updates[i])
+                #period = u['dt'].strftime(dt_format)
+                if dt in updates[i]:
+                    all_updates[i][dt] = updates[i][dt]
+                else:
+                    data = {x:0 for x in state_keys}
+                    data['dt'] = dt
+                    all_updates[i][dt] = data
 
         # 4. Apply updates to last interval
         out = OrderedDict()
@@ -207,7 +292,9 @@ class OHLC:
         for i in INTERVALS:
             print("<<",i,">>")
 
-            for j, u in enumerate(updates[i]):
+            for j, udt in enumerate(all_updates[i].keys()):
+                u = all_updates[i][udt]
+                print(j, udt, u)
                 to_path = self._aggfile(m, u['dt'], i)
 
                 if to_path not in out:
@@ -219,18 +306,27 @@ class OHLC:
 
                     period = u['dt'].strftime(dt_format)
                     if period != last_row[i]['dt']:
-                        raise ValueError(period,'does not match last row.')
+                        raise ValueError(
+                            "Last row {} doesn't match in {} for {}".format(
+                                period, i, m.name)
+                        )
 
                     # If we queried from last_trade_id update last_row, else take all
                     if 'last_trade_id' in state:
                         self._apply_prev_ohlcv(u, p)
-
-                u['dt'] = u['dt'].strftime(dt_format)
+                
+                data = OrderedDict({k:u.get(k) for k in JSONL_KEYS})
+                data['time'] = int(u['dt'].timestamp())
+                data['dt'] = u['dt'].strftime(dt_format)
                 for x in state_keys:
-                    u[x] = float(u[x])
+                    if u[x] == int(u[x]):
+                        data[x] = int(u[x])
+                    else:
+                        data[x] = float(u[x])
+                data['value'] = data['volume']
 
-                out[to_path].append(json.dumps(u) + "\n")
-                print("APPEND: ", u)
+                out[to_path].append(json.dumps(data))
+                print("APPEND: ", data)
                 print(to_path)
                 print()
 
@@ -239,9 +335,17 @@ class OHLC:
         for fn in out.keys():
             print(fn)
             tmpfile = str(fn) + ".tmp"
+            to_dir = os.path.dirname(fn)
+
+            if not os.path.exists(to_dir):
+                os.makedirs(to_dir)
+
             f = open(tmpfile, "w")
-            f.writelines(out[fn])
+            f.write("\n".join(out[fn]))
+            f.flush()
+            os.fsync(f.fileno())
             f.close()
+
             moves.append((tmpfile, fn))
 
         print()
@@ -273,38 +377,46 @@ class OHLC:
         if not os.path.exists(OUT_DIR):
             os.mkdir(OUT_DIR)
 
-        now = arrow.utcnow()
+        start = m.first_trade
+        end = self.now
 
-        print("Market %s %s -> %s" % (m.name, m.first_trade, m.last_trade))
-        for interval in INTERVAL_AGGREGATE.keys():
-            for sr in self._aggsr(interval, m.first_trade, m.last_trade):
+        print("Market %s %s -> %s" % (m.name, start, end))
+        print(start, type(start), start.tzinfo)
+        print(end, type(end), end.tzinfo)
+        for interval in INTERVALS:
+            for sr in self.get_span_range(interval, start, end):
                 rel_path = self._aggfmt(sr[0], interval)
                 to_path = OUT_DIR / m.name.lower() / interval / rel_path
                 to_tmp = str(to_path) + '.tmp'
                 to_dir = os.path.dirname(to_path)
 
-                # If file already exists, skip
-                if os.path.exists(to_path) and now > sr[1]:
+                if os.path.exists(to_path) and self.now > sr[1]:
                     continue
 
                 if not os.path.exists(to_dir):
                     os.makedirs(to_dir)
 
                 print("%s %-3s %-17s" % (m.name.lower(), interval,
-                    rel_path), end='')
-                
+                    rel_path))
+
                 begin = time.time()
-                r = self.get(m.id, interval, sr[0], sr[1])
+
+                end_get = end if sr[1] > end else sr[1]
+                r = self.get(m.id, interval, sr[0], end_get)
+
+                lines = []
+                for row in r:
+                    lines.append(json.dumps(row))
 
                 f = open(to_tmp, 'w')
-                out = "\n".join([json.dumps(row) for row in r])
+                out = "\n".join(lines)
                 f.write(out)
                 f.flush()
                 os.fsync(f.fileno())
                 f.close()
 
                 os.rename(to_tmp, to_path)
-                
+
                 rows = len(r)
                 size = os.path.getsize(to_path)
                 print("%5d rows, %10s took %5.2fs" % (
