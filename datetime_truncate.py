@@ -1,5 +1,4 @@
 from __future__ import absolute_import, division, print_function
-print('**** datetime_truncate ****')
 import datetime as dt
 
 from six.moves import range
