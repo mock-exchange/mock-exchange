@@ -67,6 +67,7 @@ class Main():
             'import', 'export',
 
             'ohlc',
+            'fake',
 
             'events',  # process events, run daemon
                         # option: -daemon
@@ -95,6 +96,10 @@ class Main():
 
         parser.add_argument("--entity",  help="entity")
 
+        # For ohlc
+        parser.add_argument('-s', "--stream",  action='store_true')
+        parser.add_argument('-m', "--market")
+
         self.args = parser.parse_args()
         #print(self.args)
         getattr(self, 'cmd_' + self.args.action)()
@@ -103,7 +108,87 @@ class Main():
     def cmd_ohlc(self):
         print('make static ohlc')
         
-        OHLC(self.session).generate_cache()
+        OHLC(self.session).generate_cache(self.args.market, self.args.stream)
+
+    def cmd_fake(self):
+        print('fake history')
+
+        # book
+        # let's try running actual trades and see what happens
+
+        # delete orders
+        # delete trades
+        db = self.session
+        
+        market_id = 3
+        account_id = 100
+
+        db.query(Order).filter_by(market_id=market_id).delete()
+        db.query(Trade).filter_by(market_id=market_id).delete()
+        db.commit()
+
+
+        file = DATA_DIR + '/bitmex_trades_2020-04-01_XBTUSD.csv'
+        with open(file) as csvfile:
+            reader = csv.DictReader(csvfile, **CSV_OPTS)
+
+            begin_row = 200000
+            end_cnt = 150000
+
+            start = datetime.utcnow() - timedelta(days=2)
+            dt = start
+            cnt = 0
+            inserted = 0
+            for row in reader:
+                cnt += 1
+
+                # skip some
+                #if cnt < begin_row:
+                #    continue
+                #if cnt > begin_row + end_cnt:
+                #    break
+
+                ts = int(row['timestamp'])
+                ts = ts / 1000000
+                
+                dt = datetime.utcfromtimestamp(ts)
+                dt = dt.replace(2020, 5, 29)
+                #dt = dt + timedelta(minutes=5)
+                #print(dt)
+                price = float(row['price'])
+                amount = int(row['amount'])
+                side = row['side']
+                """
+                m = model.Trade(
+                    account_id=account_id,
+                    market_id=market_id,
+                    created=dt,
+                    price=price,
+                    amount=amount
+                )
+                """
+                m = Event(
+                    method='place-order',
+                    account_id=account_id,
+                    created=dt,
+                    body=json.dumps({
+                        'price': price,
+                        'amount': amount,
+                        'market_id': market_id,
+                        'account_id': account_id,
+                        'side': side
+                    })
+                )
+                #print(m.__dict__)
+                self.session.add(m)
+                inserted += 1
+                if cnt % 1000 == 0:
+                    print("commit ",cnt, dt)
+                    self.session.commit()
+
+            self.session.commit()
+            print(inserted, 'rows imported')
+
 
     def cmd_maker(self):
         print('Fake market maker')
@@ -466,7 +551,8 @@ class Main():
                 account_id  = o.account_id,
                 market_id   = market.id,
                 price       = o2.price,
-                amount      = tx_amt
+                amount      = tx_amt,
+                created     = e.created
             )
             self.session.add(yy)
 
@@ -494,7 +580,8 @@ class Main():
             amount=o.amount,
             balance=demand,
             status=status,
-            uuid=e.uuid
+            uuid=e.uuid,
+            created=e.created
         )
         #no.status = self.get_status(no)
         self.session.add(no2)
@@ -508,7 +595,7 @@ class Main():
         #print("%05d %s %8d %5s %s" % (
         #e.id, e.created, e.account, e.action, e.payload))
 
-        self.session.commit()
+        #self.session.commit()
 
 
     def event_cancel_order(self, e):
@@ -520,7 +607,7 @@ class Main():
         o.status = 'canceled'
 
         e.status = 'done'
-        self.session.commit()
+        #self.session.commit()
 
     def event_deposit(self, e):
         p = json.loads(e.body)
@@ -532,7 +619,7 @@ class Main():
         )
         self.session.add(l)
         e.status = 'done'
-        self.session.commit()
+        #self.session.commit()
 
     def event_withdraw(self, e):
         p = json.loads(e.body)
@@ -544,7 +631,7 @@ class Main():
         )
         self.session.add(l)
         e.status = 'done'
-        self.session.commit()
+        #self.session.commit()
 
 
     def cmd_events(self):
@@ -569,6 +656,8 @@ class Main():
 
         while True:
 
+            begin = time.time()
+
             events = db.query(Event).filter_by(status='new').\
                 order_by(Event.created.asc()).limit(1000)
 
@@ -588,8 +677,9 @@ class Main():
                     self.event_cancel_order(e)
                 elif e.method == 'place-order':
                     self.event_place_order(e)
-
-            print("Sleep 2 seconds..")
+            
+            db.commit()
+            print("Took %f seconds. Sleep 2 seconds.." % (time.time() - begin))
             time.sleep(2)
 
 
