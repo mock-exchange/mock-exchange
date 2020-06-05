@@ -156,14 +156,18 @@ class OHLC:
 
         return (start, end)
 
-    def generate_cache(self, stream=False):
+    def generate_cache(self, market=None, stream=False):
         q = self.db.query(
             Market.id,
             Market.name,
             func.min(Trade.created).label('first_trade'),
             func.max(Trade.created).label('last_trade')
-        ).join(Trade).\
-        group_by(Market.id)
+        ).join(Trade)
+
+        if market:
+            q = q.filter(Market.name == market)
+
+        q = q.group_by(Market.id)
 
         for market in q.all():
             if stream:
@@ -257,6 +261,8 @@ class OHLC:
             start = trades[0].created
             end = trades[-1].created
 
+        print(start, '->', end)
+        print("trades count:",len(trades))
         all_updates = OrderedDict()
         for i in INTERVALS:
             if i not in all_updates:
@@ -312,7 +318,7 @@ class OHLC:
 
                 out[i][rel_path].append(json.dumps(data))
                 out_rows[i][rel_path] += 1
-                print(rel_path, dict(data))
+                print(i, rel_path, dict(data))
 
         moves = []
 
