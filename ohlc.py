@@ -21,6 +21,7 @@ from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
 from lib import SQL
 
 OUT_DIR = Path('data/ohlc')
+OUT24_DIR = Path('data/last24')
 
 dt_format = '%Y-%m-%dT%H:%M:%SZ'
 
@@ -46,20 +47,12 @@ for i in INTERVALS:
 FRAME_COUNT = 500
 
 """
-/1d/YYYY        - query by Y (365 rows) more?
-/6h/YYYY/Q      - query by Q (360 rows) more?
-/1h/YYYY/MM     - query by M (720 rows)
-/15m/YYYY/WW    - query by W (672 rows) week of year
-/5m/YYYY/MMDD   - query by D (280 rows)
-/1m/YYYY/MMDDHH - query by H (60 rows) I guess by hour
-(smaller INTERVALS only seem useful for real time watching)
-
- 1d/YYYY/YYYY.json
- 6h/YYYY/QQ/YYYY-QQ.json
- 1h/YYYY/MM/YYYY-MM.json
-15m/YYYY/WW/YYYY-WW.json
- 5m/YYYY/MM/DD/YYYY-MM-DD.json
- 1m/YYYY/MM/DD/HH/YYYY-MM-DDTHH.json
+ 1d/YYYY/YYYY.json                    year    (365 rows)
+ 6h/YYYY/QQ/YYYY-QQ.json              quarter (360 rows)
+ 1h/YYYY/MM/YYYY-MM.json              month   (720 rows)
+15m/YYYY/WW/YYYY-WW.json              week    (672 rows)
+ 5m/YYYY/MM/DD/YYYY-MM-DD.json        day     (280 rows)
+ 1m/YYYY/MM/DD/HH/YYYY-MM-DDTHH.json  hour (60 rows or 1440 daily)
 """
 
 INTERVAL_AGGREGATE = {
@@ -68,7 +61,7 @@ INTERVAL_AGGREGATE = {
     '1h'  : ('month',   '%Y/%m'),
     '15m' : ('week',    '%Y/W%W'),
     '5m'  : ('day',     '%Y/%m/%d'),
-    #'1m'  : ('hour',    '%Y/%m/%d/%H'),
+    '1m'  : ('hour',    '%Y/%m/%d/%H'),
 }
 
 # Caching resolutions higher than 1h lose tz support. I guess this is
@@ -100,6 +93,8 @@ class OHLC:
         self.db = session
 
         self.now = datetime.utcnow()
+        #self.now = datetime(2020,6,1,2,2)
+        #print("NOW:",self.now, self.now.tzinfo)
 
     def _aggfmt(self, dt, interval):
         (frame, fmt) = INTERVAL_AGGREGATE[interval]
@@ -188,10 +183,11 @@ class OHLC:
             state = json.loads(f.read())
             f.close()
 
-        last_file = {}
         last_lines = {}
         last_row = {}
+        prev_lines = {}
         for i in INTERVALS:
+            print(i)
             my_path = str(OUT_DIR / m.name.lower() / i / '**/*.jsonl')
             files = sorted(glob.glob(my_path, recursive=True))
 
@@ -199,10 +195,14 @@ class OHLC:
                 raise ValueError(
                     'Files missing in {} for {}.'.format(i, m.name)
                 )
-            last_file[i] = files[-1]
 
-            with open(last_file[i]) as f:
+            with open(files[-1]) as f:
                 last_lines[i] = f.read().splitlines()
+
+            # Used by last_24, only needs 1h
+            if i == '1h' and len(files) >= 2:
+                with open(files[-2]) as f:
+                    prev_lines[i] = f.read().splitlines()
 
             last_row[i] = json.loads(last_lines[i][-1])
 
@@ -223,7 +223,7 @@ class OHLC:
 
         # 2. Get next batch of trades
         q = self.db.query(Trade).filter(Trade.market_id == m.id)
-
+        q = q.filter(Trade.created <= self.now)
         if 'last_trade_id' in state:
             q = q.filter(Trade.id > state['last_trade_id'])
         else:
@@ -361,6 +361,50 @@ class OHLC:
             os.rename(move[0], move[1])
 
         print()
+        print("Last 24")
+        # Pull out last 24 stats from 1h rows
+        cut = 24
+        last24 = []
+        for rel_path in reversed(list(out['1h'].keys())):
+            tmp = out['1h'][rel_path][-cut:]
+            cut = cut - len(tmp)
+            last24.extend(reversed(tmp))
+            if cut <= 0:
+                break
+        if cut > 0 and '1h' in prev_lines:
+            tmp = prev_lines['1h'][-cut:]
+            last24.extend(reversed(tmp))
+        last24 = list(map(lambda x: json.loads(x), reversed(last24)))
+
+        if len(last24):
+            groups = [(i['low'], i['high'], i['volume']) for i in last24]
+            (lows, highs, volumes) = list(zip(*groups))
+            first = last24[0]
+            last = last24[-1]
+            data = {
+                'market_id' : m.id,
+                'name'      : m.name,
+                'open'      : first['open'],
+                'high'      : max(highs),
+                'low'       : min(lows),
+                'close'     : last['close'],
+                'volume'    : sum(volumes),
+                'change'    : (last['close'] - first['open']) / first['open'],
+                # This is median; need to have avg included in ohlc
+                'avg_price' : ((max(highs) - min(lows)) / 2) + min(lows)
+            }
+            print(data)
+
+            if not os.path.exists(OUT24_DIR):
+                os.makedirs(OUT24_DIR)
+
+            l24_to_path = OUT24_DIR / str(str(m.id) + '.json')
+            f = open(l24_to_path, "w")
+            f.write(json.dumps(data))
+            f.flush()
+            os.fsync(f.fileno())
+            f.close()
+
 
     def _apply_prev_ohlcv(self, u, p):
         # If there is a previous open, use it
@@ -434,6 +478,43 @@ class OHLC:
                 ))
 
         print()
+
+    def get_last24_cached(self, market_id=None):
+        if market_id:
+            data = {}
+            with open(OUT24_DIR / str(str(market_id) + '.json')) as f:
+                data = json.loads(f.read())
+            return data
+        else:
+            my_path = str(OUT24_DIR / '*.json')
+            files = sorted(glob.glob(my_path))
+
+            data = []
+            for fn in files:
+                with open(fn) as f:
+                    data.append(json.loads(f.read()))
+
+            return data
+
+    def get_last24(self, market_id=None):
+
+        sql = SQL['last24']
+
+        result = []
+        where = ''
+        sub_where = ''
+        values = []
+
+        if market_id:
+            where = 'AND m.id=?'
+            sub_where = 'AND market_id=?'
+            values.append((market_id, market_id))
+
+        sql = sql.format(where=where, sub_where=sub_where)
+        conn = self.db.connection()
+        q = conn.engine.execute(sql, values)
+
+        return dict(q.fetchone())
 
     def get_cached(self, market_id, interval, start=None, end=None):
         if (not start or not end):

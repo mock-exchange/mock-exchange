@@ -157,26 +157,7 @@ def get_balance():
 @app.route('/api/last24', methods=["GET"])
 def get_last24(market_id = None):
 
-    sql = SQL['last24']
-
-    result = []
-    where = ''
-    sub_where = ''
-    values = []
-
-    if market_id:
-        where = 'AND m.id=?'
-        sub_where = 'AND market_id=?'
-        values.append((market_id, market_id))
-
-    sql = sql.format(where=where, sub_where=sub_where)
-    rs = db.engine.execute(sql, values)
-
-    if market_id:
-        result = dict(rs.fetchone())
-    else:
-        for row in rs:
-            result.append(dict(row))
+    result = OHLC(db.session).get_last24_cached(market_id)
 
     return jsonify(result)
 
