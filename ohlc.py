@@ -389,10 +389,15 @@ class OHLC:
                 'low'       : min(lows),
                 'close'     : last['close'],
                 'volume'    : sum(volumes),
-                'change'    : (last['close'] - first['open']) / first['open'],
-                # This is median; need to have avg included in ohlc
-                'avg_price' : ((max(highs) - min(lows)) / 2) + min(lows)
+                'change'    : 0,
+                'avg_price' : 0
             }
+            try:
+                # This is median; need to have avg included in ohlc
+                data['avg_price'] = ((data['high'] - data['low']) / 2) + data['low']
+                data['change'] = (data['close'] - data['open']) / data['open']
+            except:
+                pass
             print(data)
 
             if not os.path.exists(OUT24_DIR):
