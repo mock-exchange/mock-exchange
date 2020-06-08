@@ -13,7 +13,7 @@ from (
     where
         status in ('open','partial')
         and side = 'sell'
-        and market_id = ?
+        and market_id = :market_id
     group by
         side, price
     order by
@@ -34,7 +34,7 @@ from (
     where
         status in ('open','partial')
         and side = 'buy'
-        and market_id = ?
+        and market_id = :market_id
     group by
         side, price
     order by

@@ -484,10 +484,10 @@ class OHLC:
 
         print()
 
-    def get_last24_cached(self, market_id=None):
-        if market_id:
+    def get_last24_cached(self, m):
+        if m:
             data = {}
-            with open(OUT24_DIR / str(str(market_id) + '.json')) as f:
+            with open(OUT24_DIR / str(str(m.id) + '.json')) as f:
                 data = json.loads(f.read())
             return data
         else:
@@ -501,7 +501,7 @@ class OHLC:
 
             return data
 
-    def get_last24(self, market_id=None):
+    def get_last24(self, m):
 
         sql = SQL['last24']
 
@@ -513,7 +513,7 @@ class OHLC:
         if market_id:
             where = 'AND m.id=?'
             sub_where = 'AND market_id=?'
-            values.append((market_id, market_id))
+            values.append((m.id, m.id))
 
         sql = sql.format(where=where, sub_where=sub_where)
         conn = self.db.connection()
@@ -521,11 +521,12 @@ class OHLC:
 
         return dict(q.fetchone())
 
-    def get_cached(self, market_id, interval, start=None, end=None):
+    def get_cached(self, m, interval, start=None, end=None):
         if (not start or not end):
             (start, end) = self.get_date_range(interval)
 
-        m = self.db.query(Market).get(market_id)
+        if type(m) == int:
+            m = self.db.query(Market).get(m)
 
         results = []
         print("start:",start)

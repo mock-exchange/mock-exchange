@@ -2,6 +2,7 @@
 
 import re
 import json
+import time
 
 from sqlalchemy import create_engine, and_, or_, dialects, func, update
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +16,7 @@ from marshmallow import post_dump
 
 import model
 from lib import SQL, TradeFile
+import ohlc
 from ohlc import OHLC
 
 #app = Flask(__name__, static_folder='foo')
@@ -136,6 +138,66 @@ ENTITY_SCHEMA = {
     'ledger' : LedgerSchema
 }
 
+
+# No need to go to the db for this everytime.
+MARKETS_CACHE = {}
+def get_market(code):
+    if not MARKETS_CACHE:
+        for m in db.session.query(model.Market).all():
+            MARKETS_CACHE[m.code] = m
+        MARKETS_CACHE_TIME = time.time()
+    return MARKETS_CACHE[code]
+
+@app.route('/api/<string:market>/ohlc/<string:interval>', methods=["GET"])
+def get_ohlc(market, interval):
+    m = get_market(market)
+    if not m:
+        return {"message": "Invalid market"}, 400
+
+    if interval not in ohlc.INTERVALS:
+        return {"message": "Invalid interval"}, 400
+
+    result = OHLC(db.session).get_cached(m, interval)
+    return jsonify(result)
+
+@app.route('/api/<string:market>/book', methods=["GET"])
+def get_book(market):
+    m = get_market(market)
+    if not m:
+        return {"message": "Invalid market"}, 400
+
+    sql = SQL['book']
+    rs = db.engine.execute(sql, {'market_id': m.id,})
+
+    result = []
+    for row in rs:
+        result.append(dict(row))
+
+    return jsonify(result)
+
+@app.route('/api/<string:market>/last24', methods=["GET"])
+def get_last24(market):
+    m = None
+    if market != 'all':
+        m = get_market(market)
+
+    if not m and market != 'all':
+        return {"message": "Invalid market"}, 400
+
+    result = OHLC(db.session).get_last24_cached(m)
+    return jsonify(result)
+
+@app.route('/api/<string:market>/last_trades', methods=["GET"])
+def get_last_trades(market):
+    m = get_market(market)
+    if not m:
+        return {"message": "Invalid market"}, 400
+
+    result = TradeFile().get(m)
+    return jsonify(result)
+
+
+# Get account balance
 @app.route('/api/balance', methods=["GET"])
 def get_balance():
 
@@ -144,7 +206,7 @@ def get_balance():
         return {"message": "account_id parameter required"}, 400
 
     sql = SQL['balance']
-    rs = db.engine.execute(sql, (account_id,))
+    rs = db.engine.execute(sql, {'account_id':account_id,})
 
     result = []
     for row in rs:
@@ -153,59 +215,8 @@ def get_balance():
     return jsonify(result)
 
 
-@app.route('/api/last24/<int:market_id>', methods=["GET"])
-@app.route('/api/last24', methods=["GET"])
-def get_last24(market_id = None):
 
-    result = OHLC(db.session).get_last24_cached(market_id)
-
-    return jsonify(result)
-
-@app.route('/api/last_trades/<int:market_id>', methods=["GET"])
-def get_last_trades(market_id = None):
-
-    result = TradeFile().get(market_id)
-
-    #return "\n".join(result)
-    return jsonify(result)
-
-
-@app.route('/api/ohlc', methods=["GET"])
-def get_ohlc():
-
-    market_id = request.args.get('market_id')
-    interval = request.args.get('interval')
-
-    missing = []
-    if not market_id:
-        missing.append('market_id')
-    if not interval:
-        missing.append('interval')
-    if missing:
-        params = ' and '.join(missing)
-        return {"message": "parameter(s) " + params + " required"}, 400
-
-    result = OHLC(db.session).get_cached(market_id, interval)
-
-    return jsonify(result)
-
-@app.route('/api/book', methods=["GET"])
-def get_book():
-
-    market_id = request.args.get('market_id')
-    if not market_id:
-        return {"message": "market_id parameter required"}, 400
-
-    sql = SQL['book']
-    rs = db.engine.execute(sql, (market_id, market_id,))
-
-    result = []
-    for row in rs:
-        result.append(dict(row))
-
-    return jsonify(result)
-
-
+# Get one
 @app.route('/api/<string:entity>/<int:pk>', methods=["GET"])
 def get_entity_id(entity, pk):
     if entity not in ENTITY.keys():
@@ -222,6 +233,7 @@ def get_entity_id(entity, pk):
     return jsonify(result)
 
 
+# Get list
 @app.route('/api/<string:entity>', methods=["GET"])
 def get_entity_list(entity):
     if entity not in ENTITY.keys():
@@ -291,6 +303,7 @@ def get_entity_list(entity):
 
     return jsonify(result)
 
+# Create
 @app.route("/api/<string:entity>", methods=["POST"])
 def create_entity(entity):
     if entity not in ENTITY.keys():
