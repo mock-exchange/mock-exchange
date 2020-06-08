@@ -105,6 +105,7 @@ class LedgerSchema(Schema):
     trade = fields.Nested("TradeSchema", only=("id",))
     price = fields.Str(dump_only=True)
     amount = fields.Str(dump_only=True)
+    balance = fields.Str(dump_only=True)
     created = fields.DateTime(dump_only=True, format=dt_format)
 
 """

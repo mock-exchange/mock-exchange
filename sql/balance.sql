@@ -36,6 +36,7 @@ SELECT
     a.scale,
     COALESCE(SUM(l.amount),0) AS balance,
     COALESCE(r.amount,0) AS reserve,
+    COALESCE(SUM(l.amount),0) - COALESCE(r.amount,0) AS available,
     COALESCE(value.price,0) AS last_price,
     COALESCE(SUM(l.amount) * value.price,0) AS usd_value,
     MIN(l.created) AS opening,

@@ -488,6 +488,7 @@ class Main():
             tx_total = tx_amt * o2.price
             demand -= tx_amt
 
+
             # TODO: 2 Ledger entries for each side of the trade
             # o.type == 'sell'
             # asset1 -amount o.account_id (me)
@@ -504,6 +505,28 @@ class Main():
             buyer_id  = o.account_id if o.side == 'buy' else o2.account_id
             seller_id = o.account_id if o.side == 'sell' else o2.account_id
 
+            bq = self.session.query(
+                Ledger.account_id,
+                Ledger.asset_id,
+                func.sum(Ledger.amount).label('balance'),
+            ).filter(
+                Ledger.account_id.in_((buyer_id, seller_id)),
+                Ledger.asset_id.in_((market.asset.id, market.uoa.id))
+            ).group_by(Ledger.account_id, Ledger.asset_id)
+
+            bal = {}
+            for b in bq.all():
+                if b.asset_id not in bal:
+                    bal[b.asset_id] = {}
+                bal[b.asset_id][b.account_id] = b.balance
+
+            """
+            sht eric -amt   sht.eric.bal + -amt
+            sht joe   amt   sht.joe.bal  +  amt
+            usd joe  -amt   usd.joe.bal  + -amt
+            usd eric  amt   usd.eric.bal +  amt
+            """
+
             keys = ['asset_id','account_id','amount']
             ledgers = [
                 (market.asset.id,  seller_id, tx_amt * -1),
@@ -515,6 +538,8 @@ class Main():
             print("Ledgers")
             for values in ledgers:
                 l = Ledger(**dict(zip(keys, values)))
+                if l.asset_id in bal and l.account_id in bal[l.asset_id]:
+                    l.balance = bal[l.asset_id][l.account_id] + l.amount
                 self.session.add(l)
                 
                 lout = dict(l.__dict__)
