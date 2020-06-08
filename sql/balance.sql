@@ -16,16 +16,19 @@ reserve AS (
              THEN m.asset1
              ELSE m.asset2
         END AS asset_id,
-        CASE WHEN o.side = 'sell'
+        SUM(CASE WHEN o.side = 'sell'
              THEN o.balance
              ELSE o.balance * o.price
-        END AS amount
+        END) AS amount
     FROM "order" AS o
     JOIN market AS m
         ON o.market_id = m.id
         AND o.status in ('partial','open')
     WHERE
         o.account_id = :account_id
+    GROUP BY
+        account_id,
+        asset_id
 )
 
 SELECT
