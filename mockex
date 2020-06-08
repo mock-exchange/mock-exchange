@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session, joinedload
 
 import model
 from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
-from lib import random_dates, SQL, intervals
+from lib import random_dates, SQL, intervals, DT_FORMAT, TradeFile
 from ohlc import OHLC
 
 
@@ -207,9 +207,9 @@ class Main():
                 last_price = last_trade.price
 
             account_id = random.randrange(1000000,5000000)
-            side = random.choice(['buy', 'sell', 'sell'])
+            side = random.choice(['buy', 'sell'])
             #price = abs(last_price + random.randrange(-100,100))
-            price = abs(float(last_price) + random.uniform(-2,2))
+            price = abs(float(last_price) + random.uniform(-2,4))
             amount = random.uniform(1,30)
             e = model.Event(
                 account_id=account_id,
@@ -555,7 +555,11 @@ class Main():
                 created     = e.created
             )
             self.session.add(yy)
-
+            self.tf.append(market.id, ','.join([
+                yy.created.strftime(DT_FORMAT),
+                "%.10f" % yy.price,
+                "%.10f" % yy.amount
+            ]))
             # then update remaining order amount
             o2.balance = o2.balance - tx_amt
             o2.status = self.get_status(o2)
@@ -654,13 +658,15 @@ class Main():
         for m in q.all():
             self.markets[m.id] = m
 
+        self.tf = TradeFile()
+
         while True:
 
             begin = time.time()
 
             events = db.query(Event).filter_by(status='new').\
                 order_by(Event.created.asc()).limit(1000)
-
+            
             for e in events.all():
                 print("%05d %s %8s\n%s" % (
                 e.id, e.created, e.method, e.body))
@@ -679,6 +685,7 @@ class Main():
                     self.event_place_order(e)
             
             db.commit()
+            self.tf.commit()
             print("Took %f seconds. Sleep 2 seconds.." % (time.time() - begin))
             time.sleep(2)
 

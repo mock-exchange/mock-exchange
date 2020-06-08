@@ -14,7 +14,7 @@ from marshmallow import Schema, fields, ValidationError, pre_load
 from marshmallow import post_dump
 
 import model
-from lib import SQL
+from lib import SQL, TradeFile
 from ohlc import OHLC
 
 #app = Flask(__name__, static_folder='foo')
@@ -159,6 +159,14 @@ def get_last24(market_id = None):
 
     result = OHLC(db.session).get_last24_cached(market_id)
 
+    return jsonify(result)
+
+@app.route('/api/last_trades/<int:market_id>', methods=["GET"])
+def get_last_trades(market_id = None):
+
+    result = TradeFile().get(market_id)
+
+    #return "\n".join(result)
     return jsonify(result)
 
 
