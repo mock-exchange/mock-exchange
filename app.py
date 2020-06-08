@@ -71,7 +71,7 @@ class ValidateEventBody():
         self.valid = {
             'place-order': (
                 ('price', 1.1),
-                ('amount',1),
+                ('amount',1.1),
                 ('market_id',1),
                 ('side', ('buy','sell')),
              ),
