@@ -447,7 +447,7 @@ class Main():
 
         # NO WASH TRADES
         # Exclude account's orders from set to be matched
-        where.append(model.Order.account_id != o.account_id)
+        where.append(model.Order.account_id != e.account_id)
 
 
         if o.side == 'sell':
@@ -502,8 +502,8 @@ class Main():
             # uoa    -amount o.account_id (me)
             # uoa    +amount o2.account_id (seller)
             
-            buyer_id  = o.account_id if o.side == 'buy' else o2.account_id
-            seller_id = o.account_id if o.side == 'sell' else o2.account_id
+            buyer_id  = e.account_id if o.side == 'buy' else o2.account_id
+            seller_id = e.account_id if o.side == 'sell' else o2.account_id
 
             bq = self.session.query(
                 Ledger.account_id,
@@ -573,7 +573,7 @@ class Main():
             """
 
             yy = model.Trade(  # Anonymous
-                account_id  = o.account_id,
+                account_id  = e.account_id,
                 market_id   = market.id,
                 price       = o2.price,
                 amount      = tx_amt,
@@ -601,7 +601,7 @@ class Main():
             status = 'open'
 
         no2 = model.Order(
-            account_id=o.account_id,
+            account_id=e.account_id,
             market_id=o.market_id,
             side=o.side,
             type='limit',
@@ -693,8 +693,8 @@ class Main():
                 order_by(Event.created.asc()).limit(1000)
             
             for e in events.all():
-                print("%05d %s %8s\n%s" % (
-                e.id, e.created, e.method, e.body))
+                print("%05d %d %s %8s\n%s" % (
+                e.id, e.account_id, e.created, e.method, e.body))
                 #o = json.loads(e.payload)
                 #o = type("JSON", (), json.loads(e.payload))()
 
