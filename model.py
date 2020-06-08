@@ -63,6 +63,7 @@ class Market(Base):
     uuid = Column(String(20), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
 
+    code = Column(String(15), nullable=True)
     name = Column(String(255), nullable=True)
 
     asset1 = Column(Integer, ForeignKey('asset.id'), nullable=False)
@@ -156,7 +157,7 @@ class Trade(Base): # Append only
     order_id = Column(Integer, ForeignKey('order.id'), nullable=True)
     order = relationship("Order")
 
-    created = Column(DateTime, default=utcnow)
+    created = Column(DateTime, default=utcnow, index=True)
 
 class Ledger(Base): # Append only
     __tablename__ = 'ledger'
@@ -165,7 +166,8 @@ class Ledger(Base): # Append only
     uuid = Column(String(20), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
 
-    account_id = Column(Integer, ForeignKey('account.id'), nullable=False)
+    account_id = Column(Integer, ForeignKey('account.id'), nullable=False,
+        index=True)
     account = relationship("Account")
 
     asset_id = Column(Integer, ForeignKey('asset.id'), nullable=True)
