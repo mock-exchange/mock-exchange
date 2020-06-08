@@ -375,6 +375,7 @@ class OHLC:
             last = last24[-1]
             data = {
                 'market_id' : m.id,
+                'code'      : m.code,
                 'name'      : m.name,
                 'open'      : first['open'],
                 'high'      : max(highs),

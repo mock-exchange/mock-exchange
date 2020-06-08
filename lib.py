@@ -62,13 +62,7 @@ def random_dates(count, start=None, end=None):
 
     return sorted(dates)
 
-# cache/shtusd/last_trades.csv
-# cache/shtusd/last24.json
-# cache/shtusd/ohlc/
-TRADE_DIR = Path('data/last_trades')
 CACHE_DIR = Path('cache')
-if not os.path.exists(TRADE_DIR):
-    os.makedirs(TRADE_DIR)
 
 def get_cache_dir(m):
     return CACHE_DIR / m.code
