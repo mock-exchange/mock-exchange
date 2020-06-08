@@ -1,6 +1,7 @@
 -- Open, High, Low, Close over last 24h
 SELECT
     m.id AS market_id,
+    m.code,
     m.name,
     COALESCE(open,0) AS open,
     COALESCE(MAX(price),0) AS high,
