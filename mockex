@@ -555,7 +555,7 @@ class Main():
                 created     = e.created
             )
             self.session.add(yy)
-            self.tf.append(market.id, ','.join([
+            self.tf.append(market, ','.join([
                 yy.created.strftime(DT_FORMAT),
                 "%.10f" % yy.price,
                 "%.10f" % yy.amount
