@@ -58,13 +58,57 @@ class MarketSchema(Schema):
 
 class EventSchema(Schema):
     id = fields.Int(dump_only=True)
-
-    status = fields.Str()
-    method = fields.Str()
-    account_id = fields.Int()
-    body = fields.Str()
     uuid = fields.Str(dump_only=True)
+    status = fields.Str(dump_only=True)
     created = fields.DateTime(dump_only=True, format=dt_format)
+
+    method = fields.Str(required=True)
+    account_id = fields.Int(required=True)
+    body = fields.Str(required=True)
+
+class ValidateEventBody():
+    def __init__(self):
+        self.valid = {
+            'place-order': (
+                ('price', 1.1),
+                ('amount',1),
+                ('market_id',1),
+                ('side', ('buy','sell')),
+             ),
+            'cancel-order': (
+                ('uuid','22'),
+            )
+        }
+
+    def load(self, data):
+        try:
+            body = json.loads(data['body'])
+        except:
+            raise ValidationError({'body': ['Not valid json.']})
+
+        errors = {}
+        rules = self.valid.get(data['method']) or []
+        for rule in rules:
+            (key, cond) = rule
+            if key not in body:
+                errors[key] = 'Missing data for required field.'
+            elif type(cond) == tuple:
+                if body[key] not in cond:
+                    errors[key] = 'Not valid. Must be in %s.' % (','.join(cond))
+            elif type(cond) == str and len(cond) and len(body[key]) != int(cond):
+                errors[key] = 'Not valid length. Must be %d chars.' % int(cond)
+            elif type(cond) == float:
+                try:
+                    body[key] = float(body[key])
+                except:
+                    errors[key] = 'Not valid float type.'
+            elif type(body[key]) != type(cond):
+                errors[key] = 'Not valid type. Must be %s.' % (cond.__class__.__name__)
+
+        if errors:
+            raise ValidationError({'body':errors})
+
+        return body
 
 class OrderSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -322,6 +366,14 @@ def create_entity(entity):
         data = EntitySchema().load(json_data)
     except ValidationError as err:
         return err.messages, 422
+
+    # Special validation
+    if Entity == model.Event:
+        try:
+            body = ValidateEventBody().load(data)
+        except ValidationError as err:
+            return err.messages, 422
+
     new_entity = Entity(
         **data
     )
