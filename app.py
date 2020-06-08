@@ -51,6 +51,7 @@ class AssetSchema(Schema):
 class MarketSchema(Schema):
     id = fields.Int(dump_only=True)
     uuid = fields.Str(dump_only=True)
+    code = fields.Str()
     name = fields.Str()
     asset = fields.Nested("AssetSchema")
     uoa = fields.Nested("AssetSchema")
