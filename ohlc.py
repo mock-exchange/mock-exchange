@@ -18,10 +18,7 @@ from sqlalchemy import create_engine, and_, or_, func
 from sqlalchemy.orm import Session, joinedload
 
 from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
-from lib import SQL
-
-OUT_DIR = Path('data/ohlc')
-OUT24_DIR = Path('data/last24')
+from lib import SQL, CACHE_DIR
 
 dt_format = '%Y-%m-%dT%H:%M:%SZ'
 
@@ -105,12 +102,6 @@ class OHLC:
             out = dt.strftime(fmt)
         return out + '.jsonl'
 
-    def _aggfile(self, m, dt, interval):
-        return OUT_DIR / self._aggrelfile(m, dt, interval)
-
-    def _aggrelfile(self, m, dt, interval):
-        return Path(m.name.lower()) / interval / self._aggfmt(dt, interval)
-
     def get_range(self, interval, start, end):
         (num, attr) = INTERVAL_PARTS[interval]
         dt = truncate(start, TRUNCATE[interval])
@@ -154,6 +145,7 @@ class OHLC:
     def generate_cache(self, market=None, stream=False):
         q = self.db.query(
             Market.id,
+            Market.code,
             Market.name,
             func.min(Trade.created).label('first_trade'),
             func.max(Trade.created).label('last_trade')
@@ -172,7 +164,7 @@ class OHLC:
 
     def append_json(self, m):
         state_keys = ('open','high','low','close','volume')
-        state_file = OUT_DIR / m.name.lower() / '.state.json'
+        state_file = CACHE_DIR / m.code / 'ohlc' / '.state.json'
 
         print("Processing",m.name)
 
@@ -188,7 +180,7 @@ class OHLC:
         prev_lines = {}
         for i in INTERVALS:
             print(i)
-            my_path = str(OUT_DIR / m.name.lower() / i / '**/*.jsonl')
+            my_path = str(CACHE_DIR / m.code / 'ohlc' / i / '**/*.jsonl')
             files = sorted(glob.glob(my_path, recursive=True))
 
             if not len(files):
@@ -328,7 +320,7 @@ class OHLC:
             for rel_path in out[i].keys():
                 begin = time.time()
 
-                to_path = OUT_DIR / m.name.lower() / i / rel_path
+                to_path = CACHE_DIR / m.code / 'ohlc' / i / rel_path
                 to_tmp = str(to_path) + '.tmp'
                 to_dir = os.path.dirname(to_path)
 
@@ -400,11 +392,12 @@ class OHLC:
                 pass
             print(data)
 
-            if not os.path.exists(OUT24_DIR):
-                os.makedirs(OUT24_DIR)
+            to_path = CACHE_DIR / m.code / 'last24.json'
+            to_dir = os.path.dirname(to_path)
+            if not os.path.exists(to_dir):
+                os.makedirs(to_dir)
 
-            l24_to_path = OUT24_DIR / str(str(m.id) + '.json')
-            f = open(l24_to_path, "w")
+            f = open(to_path, "w")
             f.write(json.dumps(data))
             f.flush()
             os.fsync(f.fileno())
@@ -431,8 +424,6 @@ class OHLC:
 
 
     def generate_json(self, m):
-        if not os.path.exists(OUT_DIR):
-            os.mkdir(OUT_DIR)
 
         start = m.first_trade
         end = self.now
@@ -443,7 +434,7 @@ class OHLC:
         for interval in INTERVALS:
             for sr in self.get_span_range(interval, start, end):
                 rel_path = self._aggfmt(sr[0], interval)
-                to_path = OUT_DIR / m.name.lower() / interval / rel_path
+                to_path = CACHE_DIR / m.code / 'ohlc' / interval / rel_path
                 to_tmp = str(to_path) + '.tmp'
                 to_dir = os.path.dirname(to_path)
 
@@ -487,11 +478,12 @@ class OHLC:
     def get_last24_cached(self, m):
         if m:
             data = {}
-            with open(OUT24_DIR / str(str(m.id) + '.json')) as f:
+            to_path = CACHE_DIR / m.code / 'last24.json'
+            with open(to_path) as f:
                 data = json.loads(f.read())
             return data
         else:
-            my_path = str(OUT24_DIR / '*.json')
+            my_path = str(CACHE_DIR / '*/last24.json')
             files = sorted(glob.glob(my_path))
 
             data = []
@@ -533,7 +525,7 @@ class OHLC:
         print("end  :",end)
         for sr in self.get_span_range(interval, start, end):
             rel_path = self._aggfmt(sr[0], interval)
-            to_path = OUT_DIR / m.name.lower() / interval / rel_path
+            to_path = CACHE_DIR / m.code / 'ohlc' / interval / rel_path
             print("to_path:",to_path)
             if os.path.exists(to_path):
                 with open(to_path, 'r') as f:
