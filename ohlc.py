@@ -142,6 +142,8 @@ class OHLC:
         return (start, end)
 
     def generate_cache(self, market=None, stream=False):
+        if market:
+            market = market.lower()
         q = self.db.query(
             Market.id,
             Market.code,
@@ -151,7 +153,7 @@ class OHLC:
         ).join(Trade)
 
         if market:
-            q = q.filter(Market.name == market)
+            q = q.filter(Market.code == market)
 
         q = q.group_by(Market.id)
 

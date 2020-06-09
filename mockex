@@ -50,21 +50,30 @@ class Main():
 
         parser.add_argument("--entity",  help="entity")
 
+        # For maker
+        parser.add_argument('--source')
+        parser.add_argument('--speed')
+        parser.add_argument('--volume')
+        parser.add_argument('--pattern')
+
         # For ohlc
         parser.add_argument('-s', "--stream",  action='store_true')
         parser.add_argument('-m', "--market")
 
-        self.args = parser.parse_args()
-        getattr(self, 'cmd_' + self.args.action)()
 
-    def cmd_events(self):
+        parser.add_argument('-v', '--verbose', action='store_true')
+
+        self.args = parser.parse_args()
+        getattr(self, 'cmd_' + self.args.action)(self.args)
+
+    def cmd_events(self, args):
         EventRunner(self.session).run()
 
-    def cmd_ohlc(self):
-        OHLC(self.session).generate_cache(self.args.market, self.args.stream)
+    def cmd_ohlc(self, args):
+        OHLC(self.session).generate_cache(args.market, args.stream)
 
-    def cmd_export(self):
-        ser = ENTITY.keys() if 'all' == self.args.entity else [self.args.entity]
+    def cmd_export(self, args):
+        ser = ENTITY.keys() if 'all' == args.entity else [args.entity]
         for e in ser:
             print('Export',e,'.. ', end='')
             Entity = ENTITY[e]
@@ -81,8 +90,8 @@ class Main():
                     cnt += 1
                 print(cnt, 'rows')
 
-    def cmd_import(self):
-        ser = ENTITY.keys() if 'all' == self.args.entity else [self.args.entity]
+    def cmd_import(self, args):
+        ser = ENTITY.keys() if 'all' == args.entity else [args.entity]
         for e in ser:
             print('Import',e,'.. ', end='')
             Entity = ENTITY[e]
@@ -100,6 +109,52 @@ class Main():
                     cnt += 1
                 self.session.commit()
                 print(cnt, 'rows imported')
+
+
+
+    def cmd_maker(self, args):
+        db = self.session
+
+        print('Fake maker')
+
+        market = db.query(Market).filter_by(
+            code=args.market).one_or_none()
+
+        if not market:
+            print(args.market, 'not found.')
+            return
+
+        while True:
+            # TODO: Change to order by created.desc()
+            last_trade = db.query(Trade).filter_by(
+                market_id=market.id).order_by(Trade.id.desc()).first()
+            last_price = 12
+            if (last_trade):
+                last_price = last_trade.price
+
+            account_id = random.randrange(1000000,5000000)
+            side = random.choice(['buy', 'sell'])
+            #price = abs(last_price + random.randrange(-100,100))
+            price = abs(float(last_price) + random.uniform(-2,4))
+            amount = random.uniform(1,30)
+            e = model.Event(
+                account_id=account_id,
+                method='place-order',
+                body=json.dumps({
+                    'account_id': account_id,
+                    'market_id': market.id,
+                    'price': float(price),
+                    'amount': amount,
+                    'side': side
+                })
+            )
+            print("%s %s %s @ %s" % (e.method, side, amount, price))
+            self.session.add(e)
+            self.session.commit()
+
+            seconds = random.uniform(.1,1)
+            print("Sleep %s seconds.." % (seconds,))
+            time.sleep(seconds)
 
 
     def cmd_fake(self):
@@ -180,47 +235,6 @@ class Main():
 
             self.session.commit()
             print(inserted, 'rows imported')
-
-
-    def cmd_maker(self):
-        print('Fake market maker')
-        
-        db = self.session
-
-        market = db.query(Market).filter_by(
-            name='SHTUSD').one_or_none()
-
-        while True:
-            # TODO: Change to order by created.desc()
-            last_trade = db.query(Trade).filter_by(
-                market_id=market.id).order_by(Trade.id.desc()).first()
-            last_price = 12
-            if (last_trade):
-                last_price = last_trade.price
-
-            account_id = random.randrange(1000000,5000000)
-            side = random.choice(['buy', 'sell'])
-            #price = abs(last_price + random.randrange(-100,100))
-            price = abs(float(last_price) + random.uniform(-2,4))
-            amount = random.uniform(1,30)
-            e = model.Event(
-                account_id=account_id,
-                method='place-order',
-                body=json.dumps({
-                    'account_id': account_id,
-                    'market_id': market.id,
-                    'price': float(price),
-                    'amount': amount,
-                    'side': side
-                })
-            )
-            print("%s %s %s @ %s" % (e.method, side, amount, price))
-            self.session.add(e)
-            self.session.commit()
-
-            seconds = random.uniform(.1,1)
-            print("Sleep %s seconds.." % (seconds,))
-            time.sleep(seconds)
 
 
     def cmd_book(self):

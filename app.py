@@ -150,10 +150,6 @@ class LedgerSchema(Schema):
     balance = fields.Str(dump_only=True)
     created = fields.DateTime(dump_only=True, format=DT_FORMAT)
 
-"""
-for table in model.Base.metadata.tables.keys():
-    pass
-"""
 
 ENTITY = entity_dict(db, model)
 
