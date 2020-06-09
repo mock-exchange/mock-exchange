@@ -2,21 +2,15 @@
 
 import argparse
 import csv
-from datetime import datetime, timedelta
-from decimal import Decimal
-import json
-import math
-import os
-import random
+import shutil
 import time
 
 from sqlalchemy import create_engine, and_, or_, func
 from sqlalchemy.orm import Session, joinedload
 
-from config import DT_FORMAT, SQL, DATA_DIR, CSV_OPTS
+from config import DT_FORMAT, SQL, DATA_DIR, CACHE_DIR, CSV_OPTS
 import model
 from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
-from lib import random_dates
 from ohlc import OHLC
 from event import EventRunner
 
@@ -25,12 +19,9 @@ from event import EventRunner
 #logging.basicConfig()
 #logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
-ENTITY = {
-    'asset': model.Asset,
-    'market': model.Market,
-    'account': model.Account
-}
+ENTITY = model.tables()
 
+IMPORT_EXPORT_ENTITIES = ('asset','market','account')
 
 class Main():
     def __init__(self):
@@ -39,13 +30,13 @@ class Main():
 
         parser = argparse.ArgumentParser(description='Import utility')
         parser.add_argument("action", choices=[
-            'import', 'export',
-            'events', 'ohlc', 'maker',
-            # maker
-            #    --speed 1m
-            #    --volume 1k
-            #    --pattern [daytime, weekends]
-            #    --source TRADES_FILE
+            'import', 'export', 'events',
+
+            'ohlc',
+
+            'daemon',
+
+            'reset'
         ], help="Action")
 
         parser.add_argument("--entity",  help="entity")
@@ -66,14 +57,20 @@ class Main():
         self.args = parser.parse_args()
         getattr(self, 'cmd_' + self.args.action)(self.args)
 
+    def cmd_daemon(self, args):
+        while True:
+            EventRunner(self.session).run()
+            OHLC(self.session).generate_cache(None, True)
+            print('Sleeping %d seconds.' % 2)
+            time.sleep(2)
+        # run batch of events
+        # then run ohlc -s
+
     def cmd_events(self, args):
         EventRunner(self.session).run()
 
-    def cmd_ohlc(self, args):
-        OHLC(self.session).generate_cache(args.market, args.stream)
-
     def cmd_export(self, args):
-        ser = ENTITY.keys() if 'all' == args.entity else [args.entity]
+        ser = IMPORT_EXPORT_ENTITIES if 'all' == args.entity else [args.entity]
         for e in ser:
             print('Export',e,'.. ', end='')
             Entity = ENTITY[e]
@@ -91,7 +88,7 @@ class Main():
                 print(cnt, 'rows')
 
     def cmd_import(self, args):
-        ser = ENTITY.keys() if 'all' == args.entity else [args.entity]
+        ser = IMPORT_EXPORT_ENTITIES if 'all' == args.entity else [args.entity]
         for e in ser:
             print('Import',e,'.. ', end='')
             Entity = ENTITY[e]
@@ -110,288 +107,24 @@ class Main():
                 self.session.commit()
                 print(cnt, 'rows imported')
 
+    def cmd_ohlc(self, args):
+        OHLC(self.session).generate_cache(args.market, args.stream)
 
-
-    def cmd_maker(self, args):
+    def cmd_reset(self, args):
         db = self.session
 
-        print('Fake maker')
-
-        market = db.query(Market).filter_by(
+        m = db.query(Market).filter_by(
             code=args.market).one_or_none()
-
-        if not market:
+        if not m:
             print(args.market, 'not found.')
             return
 
-        while True:
-            # TODO: Change to order by created.desc()
-            last_trade = db.query(Trade).filter_by(
-                market_id=market.id).order_by(Trade.id.desc()).first()
-            last_price = 12
-            if (last_trade):
-                last_price = last_trade.price
-
-            account_id = random.randrange(1000000,5000000)
-            side = random.choice(['buy', 'sell'])
-            #price = abs(last_price + random.randrange(-100,100))
-            price = abs(float(last_price) + random.uniform(-2,4))
-            amount = random.uniform(1,30)
-            e = model.Event(
-                account_id=account_id,
-                method='place-order',
-                body=json.dumps({
-                    'account_id': account_id,
-                    'market_id': market.id,
-                    'price': float(price),
-                    'amount': amount,
-                    'side': side
-                })
-            )
-            print("%s %s %s @ %s" % (e.method, side, amount, price))
-            self.session.add(e)
-            self.session.commit()
-
-            seconds = random.uniform(.1,1)
-            print("Sleep %s seconds.." % (seconds,))
-            time.sleep(seconds)
-
-
-    def cmd_fake(self):
-        print('fake history')
-
-        # book
-        # let's try running actual trades and see what happens
-
-        # delete orders
-        # delete trades
-        db = self.session
-        
-        market_id = 3
-        account_id = 100
-
-        db.query(Order).filter_by(market_id=market_id).delete()
-        db.query(Trade).filter_by(market_id=market_id).delete()
+        db.query(Order).filter_by(market_id=m.id).delete()
+        db.query(Trade).filter_by(market_id=m.id).delete()
         db.commit()
 
+        shutil.rmtree(CACHE_DIR / m.code)
 
-        file = DATA_DIR / 'bitmex_trades_2020-04-01_XBTUSD.csv'
-        with open(file) as csvfile:
-            reader = csv.DictReader(csvfile, **CSV_OPTS)
-
-            begin_row = 200000
-            end_cnt = 150000
-
-            start = datetime.utcnow() - timedelta(days=2)
-            dt = start
-            cnt = 0
-            inserted = 0
-            for row in reader:
-                cnt += 1
-
-                # skip some
-                #if cnt < begin_row:
-                #    continue
-                #if cnt > begin_row + end_cnt:
-                #    break
-
-                ts = int(row['timestamp'])
-                ts = ts / 1000000
-                
-                dt = datetime.utcfromtimestamp(ts)
-                dt = dt.replace(2020, 5, 29)
-                #dt = dt + timedelta(minutes=5)
-                #print(dt)
-                price = float(row['price'])
-                amount = int(row['amount'])
-                side = row['side']
-                """
-                m = model.Trade(
-                    account_id=account_id,
-                    market_id=market_id,
-                    created=dt,
-                    price=price,
-                    amount=amount
-                )
-                """
-                m = Event(
-                    method='place-order',
-                    account_id=account_id,
-                    created=dt,
-                    body=json.dumps({
-                        'price': price,
-                        'amount': amount,
-                        'market_id': market_id,
-                        'account_id': account_id,
-                        'side': side
-                    })
-                )
-                #print(m.__dict__)
-                self.session.add(m)
-                inserted += 1
-                if cnt % 1000 == 0:
-                    print("commit ",cnt, dt)
-                    self.session.commit()
-
-            self.session.commit()
-            print(inserted, 'rows imported')
-
-
-    def cmd_book(self):
-        sql = SQL['book']
-
-        con = self.engine.connect()
-        rs = con.execute(sql, (1,1,))
-        print("%-10s %10s %10s %10s" % (
-        'Side', 'Price','Amount','Total'))
-
-        for row in rs:
-            print("%-10s %10.2f %10.2f %10.2f" % tuple(row))
-
-
-
-    def cmd_trade(self):
-        file = DATA_DIR / 'bitmex_trades_2020-04-01_XBTUSD.csv'
-        with open(file) as csvfile:
-            reader = csv.DictReader(csvfile, **CSV_OPTS)
-
-            # Clean table
-            #deleted = self.session.query(model.Trade).delete()
-            #self.session.commit()
-            
-            begin_row = 200000
-            end_cnt = 50000
-
-            start = datetime.utcnow() - timedelta(days=120)
-            dt = start
-            cnt = 0
-            inserted = 0
-            for row in reader:
-                cnt += 1
-
-                # skip some
-                if cnt < begin_row:
-                    continue
-                if cnt > begin_row + end_cnt:
-                    break
-
-                ts = int(row['timestamp'])
-                ts = ts / 1000000
-                #dt = datetime.utcfromtimestamp(ts)
-                #dt = dt.replace(2020, 5, 15)
-                dt = dt + timedelta(minutes=5)
-                #print(dt)
-                price = Decimal(row['price'])
-                amount = int(row['amount'])
-                m = model.Trade(
-                    account_id=100,
-                    market_id=1,
-                    created=dt,
-                    price=price,
-                    amount=amount
-                )
-                #print(m.__dict__)
-                self.session.add(m)
-                inserted += 1
-                if cnt % 1000 == 0:
-                    self.session.commit()
-
-            self.session.commit()
-            print(inserted, 'rows imported')
-
-
-    def cmd_randbook(self):
-        market = 1
-        market_rate = 8800
-
-        account = []
-        account_idx = {}
-        for o in self.session.query(model.Account).all():
-            account_idx[o.id] = o.name
-            account.append(o.id)
-
-        assets = {
-            'usd': {
-                'issue': 100000000,
-                'id': 1
-            },
-            'btc': {
-                'issue': 50000,
-                'id': 2
-            }
-        }
-
-        """
-        # Delete first
-        self.session.query(model.Account).delete()
-        self.session.commit()
-
-        # Create accounts for all accounts.
-        # Set initial balance from pareto distribution of issue amount.
-        shape = 5
-        size = len(account)
-        dist = np.random.pareto(shape, size)
-
-        dist_sum = sum(dist)
-        for i, d in enumerate(dist):
-            dist_rate =  d / dist_sum
-            
-            for asset in assets.keys():
-                bal = assets[asset]['issue'] * dist_rate
-                bal = math.ceil(bal)
-                idx = assets[asset]['id']
-                a = model.Account(account=account[i], asset=idx, balance=bal)
-                self.session.add(a)
-
-        self.session.commit()
-        """
-        
-        print('random dates:')
-        dates = random_dates(10000)
-        
-        """
-        ass = {}
-        for i in dates:
-            match = 'DUP' if i in ass else ''
-            ass[i] = 1
-            print(i, match)
-        return
-        """
-        # Create orders
-
-        # Delete first
-        #self.session.query(model.Order).delete()
-        #self.session.commit()
-
-
-        q = self.session.query(model.Account)
-        cnt = 0
-        for r in q.filter(model.Account.asset==1):
-            print(r.__dict__)
-            price = random.randrange(8801,9200)
-            #price = random.randrange(8400,8800)
-            #amt = r.balance / price 
-            o = model.Order(
-                created=dates[cnt],
-                market=1,
-                account=r.account,
-                price=price,
-                direction="sell",
-                #direction="buy",
-                amount=r.balance,
-                amount_left=r.balance
-                #amount=amt,
-                #amount_left=amt
-            )
-            print(o.__dict__)
-            #break
-            self.session.add(o)
-            if cnt % 100 == 0:
-                print('commit()')
-                self.session.commit()
-            cnt += 1
-
-        self.session.commit()
 
 if __name__ == '__main__':
     Main()
