@@ -14,13 +14,12 @@ from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError, pre_load
 from marshmallow import post_dump
 
-from config import SQL
+from config import SQL, DT_FORMAT, entity_dict
 import model
 from lib import TradeFile
 import ohlc
 from ohlc import OHLC
 
-#app = Flask(__name__, static_folder='foo')
 app = Flask(__name__, static_folder='build', static_url_path='/')
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mockex.db'
@@ -30,8 +29,6 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 #app.config['STATIC_FOLDER'] = 'foo'
 db = SQLAlchemy(app)
 
-
-dt_format = '%Y-%m-%dT%H:%M:%SZ'
 
 class AccountSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -61,7 +58,7 @@ class EventSchema(Schema):
     id = fields.Int(dump_only=True)
     uuid = fields.Str(dump_only=True)
     status = fields.Str(dump_only=True)
-    created = fields.DateTime(dump_only=True, format=dt_format)
+    created = fields.DateTime(dump_only=True, format=DT_FORMAT)
 
     method = fields.Str(required=True)
     account_id = fields.Int(required=True)
@@ -126,8 +123,8 @@ class OrderSchema(Schema):
     side = fields.Str(required=True)
     type = fields.Str(required=True)
     status = fields.Str(dump_only=True)
-    created = fields.DateTime(dump_only=True, format=dt_format)
-    modified = fields.DateTime(dump_only=True, format=dt_format)
+    created = fields.DateTime(dump_only=True, format=DT_FORMAT)
+    modified = fields.DateTime(dump_only=True, format=DT_FORMAT)
 
 class TradeSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -138,7 +135,7 @@ class TradeSchema(Schema):
     order = fields.Nested("OrderSchema", only=("id", "status"))
     price = fields.Str(dump_only=True)
     amount = fields.Str(dump_only=True)
-    created = fields.DateTime(dump_only=True, format=dt_format)
+    created = fields.DateTime(dump_only=True, format=DT_FORMAT)
 
 class LedgerSchema(Schema):
     id = fields.Int(dump_only=True)
@@ -151,29 +148,14 @@ class LedgerSchema(Schema):
     price = fields.Str(dump_only=True)
     amount = fields.Str(dump_only=True)
     balance = fields.Str(dump_only=True)
-    created = fields.DateTime(dump_only=True, format=dt_format)
+    created = fields.DateTime(dump_only=True, format=DT_FORMAT)
 
 """
 for table in model.Base.metadata.tables.keys():
     pass
 """
 
-ENTITY = {}
-
-for table in db.engine.table_names():
-    ENTITY[table] = model.get_model_by_name(table)
-
-"""
-ENTITY = {
-    'account'  : model.Account,
-    'asset'  : model.Asset,
-    'market' : model.Market,
-    'event'  : model.Event,
-    'order'  : model.Order,
-    'trade'  : model.Trade,
-    'ledger' : model.Ledger
-}
-"""
+ENTITY = entity_dict(db, model)
 
 ENTITY_SCHEMA = {
     'account': AccountSchema,
