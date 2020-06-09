@@ -33,8 +33,10 @@ for u in urls:
     begin = time.time()
     data = None
     size = 0
+    status_code = 0
     try:
         r = requests.get(BASE_URL + u)
+        status_code = r.status_code
         size = len(r.text)
         data = r.json()
     except:
@@ -47,7 +49,7 @@ for u in urls:
     print("%2d %-30.30s %5s %5d rows %10s %8.2f ms" % (
         cnt,
         u,
-        r.status_code,
+        status_code,
         rows,
         humanize.naturalsize(size, gnu=True),
         (time.time() - begin) * 1000
