@@ -22,7 +22,8 @@ from sqlalchemy.orm import Session, joinedload
 
 import model
 from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
-from lib import random_dates, SQL, intervals, DT_FORMAT, TradeFile
+from lib import random_dates
+from config import DT_FORMAT, SQL, DATA_DIR
 from ohlc import OHLC
 from event import EventRunner
 
@@ -39,9 +40,6 @@ ENTITY = {
     'account': model.Account
 }
 
-API_ENTITIES = {}
-
-DATA_DIR = 'data'
 
 CSV_OPTS = { 'delimiter': ',', 'quotechar': '"', 'quoting': csv.QUOTE_MINIMAL }
 
@@ -127,7 +125,7 @@ class Main():
         db.commit()
 
 
-        file = DATA_DIR + '/bitmex_trades_2020-04-01_XBTUSD.csv'
+        file = DATA_DIR / 'bitmex_trades_2020-04-01_XBTUSD.csv'
         with open(file) as csvfile:
             reader = csv.DictReader(csvfile, **CSV_OPTS)
 
@@ -249,7 +247,7 @@ class Main():
             print('Export',e,'.. ', end='')
             Entity = ENTITY[e]
             q = self.session.query(Entity)
-            file = DATA_DIR + '/' + e + '.csv'
+            file = DATA_DIR / (e + '.csv')
             with open(file, 'w') as csvfile:
                 writer = csv.writer(csvfile, **CSV_OPTS)
                 header = Entity.__table__.columns.keys()
@@ -268,7 +266,7 @@ class Main():
         for e in ser:
             print('Import',e,'.. ', end='')
             Entity = ENTITY[e]
-            file = DATA_DIR + '/' + e + '.csv'
+            file = DATA_DIR / (e + '.csv')
             with open(file) as csvfile:
                 reader = csv.DictReader(csvfile, **CSV_OPTS)
 
@@ -285,7 +283,7 @@ class Main():
 
 
     def cmd_trade(self):
-        file = DATA_DIR + '/bitmex_trades_2020-04-01_XBTUSD.csv'
+        file = DATA_DIR / 'bitmex_trades_2020-04-01_XBTUSD.csv'
         with open(file) as csvfile:
             reader = csv.DictReader(csvfile, **CSV_OPTS)
 

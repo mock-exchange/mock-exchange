@@ -11,8 +11,9 @@ from sqlalchemy import create_engine, and_, or_, func
 from sqlalchemy.orm import Session, joinedload
 
 import model
+from config import SQL, DT_FORMAT
 from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
-from lib import random_dates, SQL, intervals, DT_FORMAT, TradeFile
+from lib import random_dates, TradeFile
 
 
 class EventRunner():

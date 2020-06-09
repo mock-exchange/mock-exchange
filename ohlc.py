@@ -17,10 +17,9 @@ from collections import OrderedDict
 from sqlalchemy import create_engine, and_, or_, func
 from sqlalchemy.orm import Session, joinedload
 
+from config import SQL, CACHE_DIR, DT_FORMAT
 from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
-from lib import SQL, CACHE_DIR
 
-dt_format = '%Y-%m-%dT%H:%M:%SZ'
 
 INTERVALS = ('5m','15m','1h','6h','1d')
 
@@ -287,7 +286,7 @@ class OHLC:
                     p = last_lines[i].pop()
                     out[i][rel_path] = last_lines[i]
 
-                    period = u['dt'].strftime(dt_format)
+                    period = u['dt'].strftime(DT_FORMAT)
                     if period != last_row[i]['dt']:
                         raise ValueError(
                             "Last row {} doesn't match in {} for {}".format(
@@ -300,7 +299,7 @@ class OHLC:
                 
                 data = OrderedDict({k:u.get(k) for k in JSONL_KEYS})
                 data['time'] = int(u['dt'].timestamp())
-                data['dt'] = u['dt'].strftime(dt_format)
+                data['dt'] = u['dt'].strftime(DT_FORMAT)
                 for x in state_keys:
                     if u[x] == int(u[x]):
                         data[x] = int(u[x])
@@ -439,8 +438,8 @@ class OHLC:
                 to_tmp = str(to_path) + '.tmp'
                 to_dir = os.path.dirname(to_path)
 
-                if os.path.exists(to_path) and self.now > sr[1]:
-                    continue
+                #if os.path.exists(to_path) and self.now > sr[1]:
+                #    continue
 
                 if not os.path.exists(to_dir):
                     os.makedirs(to_dir)
@@ -522,12 +521,9 @@ class OHLC:
             m = self.db.query(Market).get(m)
 
         results = []
-        print("start:",start)
-        print("end  :",end)
         for sr in self.get_span_range(interval, start, end):
             rel_path = self._aggfmt(sr[0], interval)
             to_path = CACHE_DIR / m.code / 'ohlc' / interval / rel_path
-            print("to_path:",to_path)
             if os.path.exists(to_path):
                 with open(to_path, 'r') as f:
                     page = [json.loads(x) for x in f.read().split("\n")]

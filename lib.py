@@ -10,34 +10,10 @@ from pathlib import Path
 from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import Session
 
+from config import CACHE_DIR
+
 import model
 
-ENTITY = {
-    'asset': model.Asset,
-    'market': model.Market,
-    'account': model.Account
-}
-
-DATA_DIR = 'data'
-
-DT_FORMAT = '%Y-%m-%dT%H:%M:%SZ'
-
-#CSV_OPTS = { 'delimiter': ',', 'quotechar': '"', 'quoting': csv.QUOTE_MINIMAL }
-
-# Let's grab our SQL from outside so it's easier to manage
-#SQL_ROOT = os.path.dirname(app.instance_path) + '/sql/'
-SQL_ROOT = 'sql'
-SQL = {}
-
-for filename in os.listdir(SQL_ROOT):
-  if re.search(r'\.sql$', filename):
-    name = os.path.splitext(filename)[0]
-    with open(SQL_ROOT + '/' + filename) as f:
-      SQL[name] = f.read()
-      f.close()
-
-
-intervals = ['1m','5m','15m','1h','6h','1d']
 
 def random_dates(count, start=None, end=None):
     if not start:
@@ -62,10 +38,6 @@ def random_dates(count, start=None, end=None):
 
     return sorted(dates)
 
-CACHE_DIR = Path('cache')
-
-def get_cache_dir(m):
-    return CACHE_DIR / m.code
 
 class TradeFile():
     def __init__(self):

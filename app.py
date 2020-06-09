@@ -14,8 +14,9 @@ from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError, pre_load
 from marshmallow import post_dump
 
+from config import SQL
 import model
-from lib import SQL, TradeFile
+from lib import TradeFile
 import ohlc
 from ohlc import OHLC
 
