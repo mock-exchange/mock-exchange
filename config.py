@@ -28,9 +28,4 @@ for filename in glob.glob(str(SQL_DIR / '*.sql')):
     with open(filename) as f:
       SQL[name] = f.read()
 
-def entity_dict(db, model):
-    entity = {}
-    for table in db.engine.table_names():
-        entity[table] = model.get_model_by_name(table)
-    return entity
 

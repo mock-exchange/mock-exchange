@@ -30,14 +30,16 @@ def utcnow():
     return datetime.utcnow()
 
 #MoneyColumn = Column(BigInteger, default=0)
-#MoneyColumn = Column(Numeric(19,9), default=0)
 MoneyColumn = Column(Numeric(20,10), default=0)
 
-def get_model_by_name(name):
-    for c in Base._decl_class_registry.values():
-        if hasattr(c, '__table__') and c.__table__.name == name:
-            return c
 
+def tables():
+    entity = {}
+    for c in Base._decl_class_registry.values():
+        if hasattr(c, '__table__'):
+            name = c.__table__.name
+            entity[name] = c
+    return entity
 
 # Exchange data
 

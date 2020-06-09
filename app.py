@@ -14,7 +14,7 @@ from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError, pre_load
 from marshmallow import post_dump
 
-from config import SQL, DT_FORMAT, entity_dict
+from config import SQL, DT_FORMAT
 import model
 from lib import TradeFile
 import ohlc
@@ -151,7 +151,7 @@ class LedgerSchema(Schema):
     created = fields.DateTime(dump_only=True, format=DT_FORMAT)
 
 
-ENTITY = entity_dict(db, model)
+ENTITY = model.tables()
 
 ENTITY_SCHEMA = {
     'account': AccountSchema,
