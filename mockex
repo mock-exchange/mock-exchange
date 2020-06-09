@@ -630,11 +630,14 @@ class Main():
     def event_cancel_order(self, e):
         p = json.loads(e.body)
         uuid = p['uuid']
-        o = self.session.query(model.Order).filter_by(
-            uuid=uuid).one_or_none()
+        o = self.session.query(Order).filter(
+            Order.uuid==uuid
+        ).one_or_none()
         print(o.__dict__)
-        o.status = 'canceled'
-
+        if o.account_id != e.account_id:
+            o.status = 'error'
+        else:
+            o.status = 'canceled'
         e.status = 'done'
         #self.session.commit()
 
