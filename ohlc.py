@@ -418,7 +418,7 @@ class OHLC:
 
             print('Updated ohlc for market',m.name,'between dates:')
             print(start.strftime(DT_FORMAT), '->', end.strftime(DT_FORMAT))
-            print('Rows updated:', ', '.join(['%s:%d' % (i,summary_out[i]) for i in INTERVALS]))
+            print('Cache updated:', ', '.join(['%s:%d' % (i,summary_out[i]) for i in INTERVALS]))
 
     def _apply_prev_ohlcv(self, u, p):
         # If there is a previous open, use it
@@ -444,9 +444,11 @@ class OHLC:
         start = m.first_trade
         end = self.now
 
-        self.log("Market %s %s -> %s" % (m.name, start, end))
+        print('Init ohlc for market',m.name,'between dates:')
+        print(start.strftime(DT_FORMAT), '->', end.strftime(DT_FORMAT))
         self.log(start, type(start), start.tzinfo)
         self.log(end, type(end), end.tzinfo)
+        summary_out = {}
         for interval in INTERVALS:
             for sr in self.get_span_range(interval, start, end):
                 rel_path = self._aggfmt(sr[0], interval)
@@ -483,12 +485,17 @@ class OHLC:
 
                 rows = len(r)
                 size = os.path.getsize(to_path)
+                if interval not in summary_out:
+                    summary_out[interval] = 0
+                summary_out[interval] += rows
+
                 self.log("%5d rows, %10s took %5.2fs" % (
                     rows,
                     humanize.naturalsize(size),
                     time.time() - begin
                 ))
 
+        print('Cache updated:', ', '.join(['%s:%d' % (i,summary_out[i]) for i in INTERVALS]))
         self.log()
 
     def get_last24_cached(self, m):

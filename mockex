@@ -108,7 +108,7 @@ class Main():
             time.sleep(DAEMON_WAIT_SECS)
 
     def cmd_init(self, args):
-        OHLC(self.session).init_cache(args.markets, args.force)
+        OHLC(self.session, args).init_cache(args.markets, args.force)
 
     def cmd_ohlc(self, args):
         OHLC(self.session, args).update_cache(args.markets)
