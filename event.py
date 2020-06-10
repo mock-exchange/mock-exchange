@@ -15,20 +15,38 @@ from config import SQL, DT_FORMAT
 from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
 from lib import random_dates, TradeFile
 
+BATCH_SIZE = 1000
+
+class EventTask():
+    def __init__(self):
+        pass
+
+"""
+class PlaceOrder(EventTask)
+class CancelOrder(EventTask)
+class Deposit(EventTask)
+class Withdraw(EventTask)
+"""
 
 class EventRunner():
     def __init__(self, session):
         self.session = session
 
+    def _get_markets(self, markets=['all']):
+        filters = []
+        if 'all' not in markets:
+            filters.append(Market.code.in_(markets))
+        q = self.db.query(
+            Market.id,
+            Market.code,
+            Market.name,
+            func.min(Trade.created).label('first_trade'),
+            func.max(Trade.created).label('last_trade')
+        ).join(Trade).filter(*filters).group_by(Market.id)
+
+        return q.all()
+
     def run(self):
-        print('Process events..')
-
-        # 1. Foreach order with new status
-        #   a. For limit
-        #       A. Foreach order where()  orderby(price)
-        #  opposite direction (buy vs sell)
-        #  and price <=> our price
-
         db = self.session
 
         q = db.query(Market).options(
@@ -42,41 +60,44 @@ class EventRunner():
 
         self.tf = TradeFile()
 
-        while True:
+        begin = time.time()
 
-            begin = time.time()
+        q2 = db.query(Event).filter_by(status='new').\
+            order_by(Event.created.asc()).limit(BATCH_SIZE)
 
-            events = db.query(Event).filter_by(status='new').\
-                order_by(Event.created.asc()).limit(1000)
-            
-            for e in events.all():
-                print("%05d %d %s %8s\n%s" % (
-                e.id, e.account_id, e.created, e.method, e.body))
-                #o = json.loads(e.payload)
-                #o = type("JSON", (), json.loads(e.payload))()
+        events = q2.all()
+        if not len(events):
+            print('No events.')
+            return
 
-                # Event(e).execute()
+        print('Running %d events..' % len(events))
 
-                if e.method == 'deposit':
-                    self.event_deposit(e)
-                elif e.method == 'withdraw':
-                    self.event_withdraw(e)
-                elif e.method == 'cancel-order':
-                    self.event_cancel_order(e)
-                elif e.method == 'place-order':
-                    self.event_place_order(e)
-            
-            db.commit()
-            self.tf.commit()
-            print("Took %f seconds. Sleep 2 seconds.." % (time.time() - begin))
-            time.sleep(2)
+        for e in events:
+            print("%05d %d %s %8s\n%s" % (
+            e.id, e.account_id, e.created, e.method, e.body))
+            #o = json.loads(e.payload)
+            #o = type("JSON", (), json.loads(e.payload))()
 
+            # Event(e).execute()
+            # call(e, body, market)
+            if e.method == 'deposit':
+                self.event_deposit(e)
+            elif e.method == 'withdraw':
+                self.event_withdraw(e)
+            elif e.method == 'cancel-order':
+                self.event_cancel_order(e)
+            elif e.method == 'place-order':
+                self.event_place_order(e)
+
+        db.commit()
+        self.tf.commit()
+        print("Handled %d events in %f seconds." % (len(events), time.time() - begin))
+
+    def get_body(self, e):
+        return json.loads(e.body, object_hook=lambda d: namedtuple('eventBody', d.keys())(*d.values()))
 
     def event_place_order(self, e):
-        # event add_order
-        #if e.action == 'ao':
-        #    self.add_order()
-        o = json.loads(e.body, object_hook=lambda d: namedtuple('eventBody', d.keys())(*d.values()))
+        o = self.get_body(e)
         demand = Decimal(o.amount)
 
         market = self.markets[o.market_id]

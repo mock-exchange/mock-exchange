@@ -3,8 +3,9 @@
 import argparse
 import csv
 import shutil
+import sys
 import time
-
+from datetime import datetime
 from sqlalchemy import create_engine, and_, or_, func
 from sqlalchemy.orm import Session, joinedload
 
@@ -19,6 +20,8 @@ from event import EventRunner
 #logging.basicConfig()
 #logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
+DAEMON_WAIT_SECS = 2
+
 ENTITY = model.tables()
 
 IMPORT_EXPORT_ENTITIES = ('asset','market','account')
@@ -26,51 +29,107 @@ IMPORT_EXPORT_ENTITIES = ('asset','market','account')
 class Main():
     def __init__(self):
         self.engine = create_engine('sqlite:///mockex.db')
-        self.session = Session(self.engine)
+        db = self.session = Session(self.engine)
 
-        parser = argparse.ArgumentParser(description='Import utility')
-        parser.add_argument("action", choices=[
-            'import', 'export', 'events',
+        markets = [m.code for m in db.query(Market).all()] + ['all']
 
-            'ohlc',
-
-            'daemon',
-
-            'reset'
-        ], help="Action")
-
-        parser.add_argument("--entity",  help="entity")
-
-        # For maker
-        parser.add_argument('--source')
-        parser.add_argument('--speed')
-        parser.add_argument('--volume')
-        parser.add_argument('--pattern')
-
-        # For ohlc
-        parser.add_argument('-s', "--stream",  action='store_true')
-        parser.add_argument('-m', "--market")
-
-
+        parser = argparse.ArgumentParser(description='Mock Exchange')
         parser.add_argument('-v', '--verbose', action='store_true')
 
-        self.args = parser.parse_args()
-        getattr(self, 'cmd_' + self.args.action)(self.args)
+        subparsers = parser.add_subparsers(dest='command', help='Commands')
 
-    def cmd_daemon(self, args):
+        t_parent = argparse.ArgumentParser(add_help=False)
+        t_parent.add_argument('-t', '--tables',
+            choices=ENTITY.keys(), nargs='+', default=['all'])
+
+        import_parser = subparsers.add_parser('import', parents=[t_parent],
+            help='Import tables')
+        export_parser = subparsers.add_parser('export', parents=[t_parent],
+            help='Export tables')
+
+        d_parent = argparse.ArgumentParser(add_help=False)
+        d_parent.add_argument('-d', '--daemon', action='store_true',
+            help='Run in loop')
+
+        m_parent = argparse.ArgumentParser(add_help=False)
+        m_parent.add_argument('-m', '--markets', nargs='+', choices=markets,
+            default=['all'],
+            help='Markets')
+
+        f_parent = argparse.ArgumentParser(add_help=False)
+        f_parent.add_argument('-f', '--force', action='store_true',
+            help='Force overwrite')
+
+
+        init_parser = subparsers.add_parser('init',
+            parents=[m_parent, f_parent],
+            help='Init market cache')
+        clear_parser = subparsers.add_parser('clear', parents=[m_parent],
+            help='Clear market data')
+
+        ohlc_parser = subparsers.add_parser('ohlc',
+            parents=[d_parent, m_parent],
+            help='Update ohlc cache')
+        events_parser = subparsers.add_parser('events',
+            parents=[d_parent, m_parent],
+            help='Run events')
+        start_parser = subparsers.add_parser('start',
+            parents=[d_parent, m_parent],
+            help='Start daemon')
+
+        args = parser.parse_args()
+
+        if args.command == 'start':
+            args.daemon = True
+
+        if not args.command:
+            parser.print_help(sys.stderr)
+            sys.exit(1)
+
+        print(args)
+        getattr(self, 'cmd_' + args.command)(args)
+
+    def cmd_start(self, args):
         while True:
+            # Not filtering by markets - run all.
             EventRunner(self.session).run()
-            OHLC(self.session).generate_cache(None, True)
-            print('Sleeping %d seconds.' % 2)
-            time.sleep(2)
-        # run batch of events
-        # then run ohlc -s
+            OHLC(self.session, args).update_cache()
+            if not args.daemon:
+                break
+            print('Wait %.2f seconds.' % DAEMON_WAIT_SECS)
+            time.sleep(DAEMON_WAIT_SECS)
 
     def cmd_events(self, args):
-        EventRunner(self.session).run()
+        while True:
+            EventRunner(self.session).run()
+            if not args.daemon:
+                break
+            print('Wait %.2f seconds.' % DAEMON_WAIT_SECS)
+            time.sleep(DAEMON_WAIT_SECS)
+
+    def cmd_init(self, args):
+        OHLC(self.session).init_cache(args.markets, args.force)
+
+    def cmd_ohlc(self, args):
+        OHLC(self.session, args).update_cache(args.markets)
+
+    def cmd_clear(self, args):
+        db = self.session
+
+        m = db.query(Market).filter_by(
+            code=args.market).one_or_none()
+        if not m:
+            print(args.market, 'not found.')
+            return
+
+        db.query(Order).filter_by(market_id=m.id).delete()
+        db.query(Trade).filter_by(market_id=m.id).delete()
+        db.commit()
+
+        shutil.rmtree(CACHE_DIR / m.code)
 
     def cmd_export(self, args):
-        ser = IMPORT_EXPORT_ENTITIES if 'all' == args.entity else [args.entity]
+        ser = IMPORT_EXPORT_ENTITIES if 'all' in args.tables else args.tables
         for e in ser:
             print('Export',e,'.. ', end='')
             Entity = ENTITY[e]
@@ -88,7 +147,7 @@ class Main():
                 print(cnt, 'rows')
 
     def cmd_import(self, args):
-        ser = IMPORT_EXPORT_ENTITIES if 'all' == args.entity else [args.entity]
+        ser = IMPORT_EXPORT_ENTITIES if 'all' in args.tables else args.tables
         for e in ser:
             print('Import',e,'.. ', end='')
             Entity = ENTITY[e]
@@ -106,24 +165,6 @@ class Main():
                     cnt += 1
                 self.session.commit()
                 print(cnt, 'rows imported')
-
-    def cmd_ohlc(self, args):
-        OHLC(self.session).generate_cache(args.market, args.stream)
-
-    def cmd_reset(self, args):
-        db = self.session
-
-        m = db.query(Market).filter_by(
-            code=args.market).one_or_none()
-        if not m:
-            print(args.market, 'not found.')
-            return
-
-        db.query(Order).filter_by(market_id=m.id).delete()
-        db.query(Trade).filter_by(market_id=m.id).delete()
-        db.commit()
-
-        shutil.rmtree(CACHE_DIR / m.code)
 
 
 if __name__ == '__main__':

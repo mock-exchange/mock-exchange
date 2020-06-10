@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import math
+import shutil
 import types
 import time
 from datetime_truncate import truncate
@@ -85,12 +86,16 @@ TRUNCATE = {
 JSONL_KEYS = ('dt', 'time', 'open', 'high', 'low', 'close', 'volume', 'value')
 
 class OHLC:
-    def __init__(self, session):
+    def __init__(self, session, args):
         self.db = session
-
+        self.verbose = getattr(args, 'verbose', False)
         self.now = datetime.utcnow()
         #self.now = datetime(2020,6,1,2,2)
         #print("NOW:",self.now, self.now.tzinfo)
+
+    def log(self, args):
+        if self.verbose:
+            print(*args)
 
     def _aggfmt(self, dt, interval):
         (frame, fmt) = INTERVAL_AGGREGATE[interval]
@@ -141,27 +146,29 @@ class OHLC:
 
         return (start, end)
 
-    def generate_cache(self, market=None, stream=False):
-        if market:
-            market = market.lower()
+    def _get_markets(self, markets=['all']):
+        filters = []
+        if 'all' not in markets:
+            filters.append(Market.code.in_(markets))
         q = self.db.query(
             Market.id,
             Market.code,
             Market.name,
             func.min(Trade.created).label('first_trade'),
             func.max(Trade.created).label('last_trade')
-        ).join(Trade)
+        ).join(Trade).filter(*filters).group_by(Market.id)
 
-        if market:
-            q = q.filter(Market.code == market)
+        return q.all()
 
-        q = q.group_by(Market.id)
+    def init_cache(self, markets, overwrite=False):
+        for m in self._get_markets(markets):
+            if overwrite:
+                shutil.rmtree(CACHE_DIR / m.code / 'ohlc')
+            self.create_json(m)
 
-        for market in q.all():
-            if stream:
-                self.append_json(market)
-            else:
-                self.generate_json(market)
+    def update_cache(self, markets=['all']):
+        for m in self._get_markets(markets):
+            self.append_json(m)
 
     def append_json(self, m):
         state_keys = ('open','high','low','close','volume')
@@ -425,7 +432,7 @@ class OHLC:
         u['volume'] += p['volume']
 
 
-    def generate_json(self, m):
+    def create_json(self, m):
 
         start = m.first_trade
         end = self.now
@@ -440,8 +447,8 @@ class OHLC:
                 to_tmp = str(to_path) + '.tmp'
                 to_dir = os.path.dirname(to_path)
 
-                #if os.path.exists(to_path) and self.now > sr[1]:
-                #    continue
+                if os.path.exists(to_path) and self.now > sr[1]:
+                    continue
 
                 if not os.path.exists(to_dir):
                     os.makedirs(to_dir)
