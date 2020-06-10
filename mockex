@@ -21,7 +21,7 @@ from event import EventRunner
 #logging.basicConfig()
 #logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
-DAEMON_WAIT_SECS = 2
+DAEMON_WAIT_SECS = 2.0
 
 ENTITY = model.tables()
 
@@ -43,14 +43,10 @@ class Main():
         t_parent.add_argument('-t', '--tables',
             choices=ENTITY.keys(), nargs='+', default=['all'])
 
-        import_parser = subparsers.add_parser('import', parents=[t_parent],
-            help='Import tables')
-        export_parser = subparsers.add_parser('export', parents=[t_parent],
-            help='Export tables')
-
         d_parent = argparse.ArgumentParser(add_help=False)
-        d_parent.add_argument('-d', '--daemon', action='store_true',
-            help='Run in loop')
+        d_parent.add_argument('-d', '--daemon', type=float, nargs='?',
+            const=DAEMON_WAIT_SECS,
+            help='Run in loop', metavar='secs')
 
         m_parent = argparse.ArgumentParser(add_help=False)
         m_parent.add_argument('-m', '--markets', nargs='+', choices=markets,
@@ -64,10 +60,10 @@ class Main():
 
         init_parser = subparsers.add_parser('init',
             parents=[m_parent, f_parent],
-            help='Init market cache')
+            help='Init market cache (ohlc)')
         clear_parser = subparsers.add_parser('clear',
             parents=[m_parent, f_parent],
-            help='Clear market data')
+            help='Clear market data (db and cache)')
 
         ohlc_parser = subparsers.add_parser('ohlc',
             parents=[d_parent, m_parent],
@@ -78,6 +74,12 @@ class Main():
         start_parser = subparsers.add_parser('start',
             parents=[d_parent, m_parent],
             help='Start daemon')
+
+        import_parser = subparsers.add_parser('import', parents=[t_parent],
+            help='Import tables')
+        export_parser = subparsers.add_parser('export', parents=[t_parent],
+            help='Export tables')
+
 
         args = parser.parse_args()
 
@@ -97,16 +99,16 @@ class Main():
             OHLC(self.session, args).update_cache()
             if not args.daemon:
                 break
-            print('Wait %.2f seconds.' % DAEMON_WAIT_SECS)
-            time.sleep(DAEMON_WAIT_SECS)
+            print('Wait %.2f seconds.' % args.daemon)
+            time.sleep(args.daemon)
 
     def cmd_events(self, args):
         while True:
             EventRunner(self.session).run()
             if not args.daemon:
                 break
-            print('Wait %.2f seconds.' % DAEMON_WAIT_SECS)
-            time.sleep(DAEMON_WAIT_SECS)
+            print('Wait %.2f seconds.' % args.daemon)
+            time.sleep(args.daemon)
 
     def cmd_init(self, args):
         OHLC(self.session, args).init_cache(args.markets, args.force)
