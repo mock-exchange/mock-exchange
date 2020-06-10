@@ -83,8 +83,8 @@ class Main():
 
         args = parser.parse_args()
 
-        if args.command == 'start':
-            args.daemon = True
+        if args.command == 'start' and not args.daemon:
+            args.daemon = DAEMON_WAIT_SECS
 
         if not args.command:
             parser.print_help(sys.stderr)
