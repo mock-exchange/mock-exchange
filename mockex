@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import os
 import shutil
 import sys
 import time
@@ -64,7 +65,8 @@ class Main():
         init_parser = subparsers.add_parser('init',
             parents=[m_parent, f_parent],
             help='Init market cache')
-        clear_parser = subparsers.add_parser('clear', parents=[m_parent],
+        clear_parser = subparsers.add_parser('clear',
+            parents=[m_parent, f_parent],
             help='Clear market data')
 
         ohlc_parser = subparsers.add_parser('ohlc',
@@ -86,7 +88,6 @@ class Main():
             parser.print_help(sys.stderr)
             sys.exit(1)
 
-        print(args)
         getattr(self, 'cmd_' + args.command)(args)
 
     def cmd_start(self, args):
@@ -116,17 +117,29 @@ class Main():
     def cmd_clear(self, args):
         db = self.session
 
-        m = db.query(Market).filter_by(
-            code=args.market).one_or_none()
-        if not m:
-            print(args.market, 'not found.')
-            return
+        if not args.force:
+            print('You are about to delete market data for:')
+            print(' ',', '.join(args.markets))
+            print('Are you sure? You must supply the --force flag')
+            sys.exit(1)
 
-        db.query(Order).filter_by(market_id=m.id).delete()
-        db.query(Trade).filter_by(market_id=m.id).delete()
-        db.commit()
+        filters = []
+        if 'all' not in args.markets:
+            filters.append(Market.code.in_(args.markets))
+        q = db.query(Market).filter(*filters)
 
-        shutil.rmtree(CACHE_DIR / m.code)
+        for m in q.all():
+            print('Clearing market', m.name, 'data')
+            db.query(Order).filter_by(market_id=m.id).delete()
+            print('  delete orders')
+            db.query(Trade).filter_by(market_id=m.id).delete()
+            print('  delete trades')
+            db.commit()
+
+            d = CACHE_DIR / m.code
+            if os.path.exists(d):
+                print('  remove',str(d))
+                shutil.rmtree(d)
 
     def cmd_export(self, args):
         ser = IMPORT_EXPORT_ENTITIES if 'all' in args.tables else args.tables
