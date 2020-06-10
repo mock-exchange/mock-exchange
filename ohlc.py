@@ -174,6 +174,7 @@ class OHLC:
         state_keys = ('open','high','low','close','volume')
         state_file = CACHE_DIR / m.code / 'ohlc' / '.state.json'
 
+        summary_begin = time.time()
         self.log("Processing",m.name)
 
         # 1. Get previous state
@@ -416,9 +417,11 @@ class OHLC:
             os.fsync(f.fileno())
             f.close()
 
-            print('Updated ohlc for market',m.name,'between dates:')
-            print(start.strftime(DT_FORMAT), '->', end.strftime(DT_FORMAT))
-            print('Cache updated:', ', '.join(['%s:%d' % (i,summary_out[i]) for i in INTERVALS]))
+        print('Updated ohlc for market',m.name,'between dates:')
+        print(start.strftime(DT_FORMAT), '->', end.strftime(DT_FORMAT))
+        print('Cache updated:', ', '.join(['%s:%d' % (i,summary_out[i]) for i in INTERVALS]))
+        print('Took %f seconds' % (time.time() - summary_begin))
+        print()
 
     def _apply_prev_ohlcv(self, u, p):
         # If there is a previous open, use it
@@ -444,6 +447,7 @@ class OHLC:
         start = m.first_trade
         end = self.now
 
+        summary_begin = time.time()
         print('Init ohlc for market',m.name,'between dates:')
         print(start.strftime(DT_FORMAT), '->', end.strftime(DT_FORMAT))
         self.log(start, type(start), start.tzinfo)
@@ -496,7 +500,8 @@ class OHLC:
                 ))
 
         print('Cache updated:', ', '.join(['%s:%d' % (i,summary_out[i]) for i in INTERVALS]))
-        self.log()
+        print('Took %f seconds' % (time.time() - summary_begin))
+        print()
 
     def get_last24_cached(self, m):
         if m:
