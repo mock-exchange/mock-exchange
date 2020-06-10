@@ -86,7 +86,7 @@ TRUNCATE = {
 JSONL_KEYS = ('dt', 'time', 'open', 'high', 'low', 'close', 'volume', 'value')
 
 class OHLC:
-    def __init__(self, session, args):
+    def __init__(self, session, args={}):
         self.db = session
         self.verbose = getattr(args, 'verbose', False)
         self.now = datetime.utcnow()
