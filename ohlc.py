@@ -91,9 +91,9 @@ class OHLC:
         self.verbose = getattr(args, 'verbose', False)
         self.now = datetime.utcnow()
         #self.now = datetime(2020,6,1,2,2)
-        #print("NOW:",self.now, self.now.tzinfo)
+        #self.log("NOW:",self.now, self.now.tzinfo)
 
-    def log(self, args):
+    def log(self, *args, end="\n"):
         if self.verbose:
             print(*args)
 
@@ -174,7 +174,7 @@ class OHLC:
         state_keys = ('open','high','low','close','volume')
         state_file = CACHE_DIR / m.code / 'ohlc' / '.state.json'
 
-        print("Processing",m.name)
+        self.log("Processing",m.name)
 
         # 1. Get previous state
         state = {}
@@ -187,7 +187,7 @@ class OHLC:
         last_row = {}
         prev_lines = {}
         for i in INTERVALS:
-            print(i)
+            self.log(i)
             my_path = str(CACHE_DIR / m.code / 'ohlc' / i / '**/*.jsonl')
             files = sorted(glob.glob(my_path, recursive=True))
 
@@ -261,8 +261,8 @@ class OHLC:
             start = trades[0].created
             end = trades[-1].created
 
-        print(start, '->', end)
-        print("trades count:",len(trades))
+        self.log(start, '->', end)
+        self.log("trades count:",len(trades))
         all_updates = OrderedDict()
         for i in INTERVALS:
             if i not in all_updates:
@@ -276,8 +276,8 @@ class OHLC:
                     all_updates[i][dt] = data
 
         # 4. Apply updates to last interval
-        print()
-        print("Apply updates..")
+        self.log()
+        self.log("Apply updates..")
         out = OrderedDict()
         out_rows = {}
         for i in INTERVALS:
@@ -318,12 +318,13 @@ class OHLC:
 
                 out[i][rel_path].append(json.dumps(data))
                 out_rows[i][rel_path] += 1
-                print(i, rel_path, dict(data))
+                self.log(i, rel_path, dict(data))
 
+        summary_out = {}
         moves = []
 
-        print()
-        print("Write updates:")
+        self.log()
+        self.log("Write updates:")
         for i in INTERVALS:
             for rel_path in out[i].keys():
                 begin = time.time()
@@ -332,7 +333,7 @@ class OHLC:
                 to_tmp = str(to_path) + '.tmp'
                 to_dir = os.path.dirname(to_path)
 
-                print("%s %-3s %-25s" % (m.name.lower(), i,
+                self.log("%s %-3s %-25s" % (m.name.lower(), i,
                     rel_path + '.tmp'), end='')
 
                 if not os.path.exists(to_dir):
@@ -346,7 +347,10 @@ class OHLC:
 
                 rows = out_rows[i][rel_path]
                 size = os.path.getsize(to_tmp)
-                print("%5d rows, %10s took %5.2fs" % (
+                if i not in summary_out:
+                    summary_out[i] = 0
+                summary_out[i] += rows
+                self.log("%5d rows, %10s took %5.2fs" % (
                     rows,
                     humanize.naturalsize(size),
                     time.time() - begin
@@ -354,14 +358,14 @@ class OHLC:
 
                 moves.append((to_tmp, to_path))
 
-        print()
-        print("Commit updates:")
+        self.log()
+        self.log("Commit updates:")
         for move in moves:
-            print("rename to", str(move[1]))
+            self.log("rename to", str(move[1]))
             os.rename(move[0], move[1])
 
-        print()
-        print("Last 24")
+        self.log()
+        self.log("Last 24")
         # Pull out last 24 stats from 1h rows
         cut = 24
         last24 = []
@@ -399,7 +403,7 @@ class OHLC:
                 data['change'] = (data['close'] - data['open']) / data['open']
             except:
                 pass
-            print(data)
+            self.log(data)
 
             to_path = CACHE_DIR / m.code / 'last24.json'
             to_dir = os.path.dirname(to_path)
@@ -412,6 +416,9 @@ class OHLC:
             os.fsync(f.fileno())
             f.close()
 
+            print('Updated ohlc for market',m.name,'between dates:')
+            print(start.strftime(DT_FORMAT), '->', end.strftime(DT_FORMAT))
+            print('Rows updated:', ', '.join(['%s:%d' % (i,summary_out[i]) for i in INTERVALS]))
 
     def _apply_prev_ohlcv(self, u, p):
         # If there is a previous open, use it
@@ -437,9 +444,9 @@ class OHLC:
         start = m.first_trade
         end = self.now
 
-        print("Market %s %s -> %s" % (m.name, start, end))
-        print(start, type(start), start.tzinfo)
-        print(end, type(end), end.tzinfo)
+        self.log("Market %s %s -> %s" % (m.name, start, end))
+        self.log(start, type(start), start.tzinfo)
+        self.log(end, type(end), end.tzinfo)
         for interval in INTERVALS:
             for sr in self.get_span_range(interval, start, end):
                 rel_path = self._aggfmt(sr[0], interval)
@@ -453,7 +460,7 @@ class OHLC:
                 if not os.path.exists(to_dir):
                     os.makedirs(to_dir)
 
-                print("%s %-3s %-17s" % (m.name.lower(), interval,
+                self.log("%s %-3s %-17s" % (m.name.lower(), interval,
                     rel_path), end='')
 
                 begin = time.time()
@@ -476,13 +483,13 @@ class OHLC:
 
                 rows = len(r)
                 size = os.path.getsize(to_path)
-                print("%5d rows, %10s took %5.2fs" % (
+                self.log("%5d rows, %10s took %5.2fs" % (
                     rows,
                     humanize.naturalsize(size),
                     time.time() - begin
                 ))
 
-        print()
+        self.log()
 
     def get_last24_cached(self, m):
         if m:
