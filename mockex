@@ -21,7 +21,7 @@ from event import EventRunner
 #logging.basicConfig()
 #logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
-DAEMON_WAIT_SECS = 2.0
+DAEMON_WAIT_SECS = 1.0
 
 ENTITY = model.tables()
 
