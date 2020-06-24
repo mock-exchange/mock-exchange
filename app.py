@@ -71,6 +71,7 @@ class ValidateEventBody():
                 ('price', 1.1),
                 ('amount',1.1),
                 ('market_id',1),
+                ('type', ('market','limit')),
                 ('side', ('buy','sell')),
              ),
             'cancel-order': (
