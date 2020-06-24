@@ -74,8 +74,8 @@ class EventRunner():
         for e in events:
             self.funcs[e.method](e)
 
-        #db.commit()
-        #self.tf.commit()
+        db.commit()
+        self.tf.commit()
         print("Handled %d events in %f seconds." % (len(events), time.time() - begin))
 
 
