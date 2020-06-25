@@ -148,15 +148,36 @@ class Trade(Base): # Append only
     uuid = Column(String(20), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
 
-    account_id = Column(Integer, ForeignKey('account.id'), nullable=False)
-    account = relationship("Account")
     market_id = Column(Integer, ForeignKey('market.id'), nullable=False)
     market = relationship("Market")
+
+    #account_id = Column(Integer, ForeignKey('account.id'), nullable=False)
+    #account = relationship("Account")
 
     price = MoneyColumn.copy()
     amount = MoneyColumn.copy()
 
-    order_id = Column(Integer, ForeignKey('order.id'), nullable=True)
+    @hybrid_property
+    def total(self):
+        return self.price * self.amount
+
+    created = Column(DateTime, default=utcnow, index=True)
+
+class TradeSide(Base): # Append only
+    __tablename__ = 'trade_side'
+
+    id = Column(Integer, primary_key=True)
+    trade_uuid = Column(String(20), ForeignKey('trade.uuid'), nullable=False)
+    trade = relationship("Trade")
+
+    fee_rate = MoneyColumn.copy()
+    amount = MoneyColumn.copy()
+    total = MoneyColumn.copy()
+
+
+    account_id = Column(Integer, ForeignKey('account.id'), nullable=False)
+    account = relationship("Account")
+    order_uuid = Column(String(20), ForeignKey('order.uuid'), nullable=True)
     order = relationship("Order")
 
     created = Column(DateTime, default=utcnow, index=True)

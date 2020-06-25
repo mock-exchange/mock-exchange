@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from datetime import datetime, timedelta
 import json
-#import shortuuid
+import shortuuid
 import time
 from collections import namedtuple
 from decimal import Decimal
@@ -12,10 +12,30 @@ from sqlalchemy.orm import Session, joinedload
 
 import model
 from config import SQL, DT_FORMAT
-from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
+from model import (
+    Account, Market, Asset, Event, Order, Trade, TradeSide, Ledger
+)
 from lib import random_dates, TradeFile
 
 BATCH_SIZE = 1000
+
+MAKER_FEE_RATE = Decimal(0.16 / 100)
+TAKER_FEE_RATE = Decimal(0.26 / 100)
+FEE_ACCOUNT_ID = 1
+
+""" Methods to record fees
+
+Method #1 - Separate ledgers
+    ledger: fee account, +fee
+    ledger: fee account, +fee
+    ledger: buyer, -fee
+    ledger: seller, -fee
+
+Method #2 - Separate ledgers only for fee account
+
+Method #3 - Attribute on existing ledger entries
+
+"""
 
 class EventRunner():
     def __init__(self, session):
@@ -74,13 +94,22 @@ class EventRunner():
         for e in events:
             self.funcs[e.method](e)
 
-        db.commit()
-        self.tf.commit()
+        #db.commit()
+        #self.tf.commit()
         print("Handled %d events in %f seconds." % (len(events), time.time() - begin))
 
 
     def event_place_order(self, e):
-        o = self.get_body(e)
+
+        # Create new order (add to session at the end)
+        new_order = json.loads(e.body)
+        for k in ('uuid','created','account_id'):
+            new_order[k] = getattr(e, k)
+        for k in ('price','amount'):
+            new_order[k] = Decimal(new_order[k])
+        new_order['balance'] = new_order['amount']
+        o = Order(**new_order)
+
         market = self.markets[o.market_id]
 
         print("%-12s %6s %-4s %10.4f @ %10.4f  %s\n%50.50s%s" % (
@@ -105,7 +134,7 @@ class EventRunner():
         # Query order matches in fifo order
         q = self.session.query(Order).filter(and_(*where)).order_by(*order)
 
-        demand = Decimal(o.amount)
+        demand = o.amount
         for om in q.all():
             # Fill until demand is empty
             if not demand:
@@ -114,6 +143,61 @@ class EventRunner():
             tx_amt = om.balance if demand > om.balance else demand
             tx_total = tx_amt * om.price
             demand -= tx_amt
+
+            taker_fee = tx_amt * TAKER_FEE_RATE
+            maker_fee = tx_amt * MAKER_FEE_RATE
+            tx_subamt = tx_amt - taker_fee - maker_fee
+
+            t = Trade(
+                uuid        = shortuuid.uuid(),
+                created     = e.created,
+                market_id   = market.id,
+                price       = om.price,
+                amount      = tx_amt,
+            )
+
+            # fee comes out of both sides
+            """
+            ts = TradeSide(
+                trade_uuid = t.uuid,
+                account_id = o.account_id,
+                order_uuid = o.uuid,
+                sub_amount =    # total amount
+                fee =           # fee
+                amount =        # total - fee
+            )
+            ms = TradeSide(
+                trade_uuid = t.uuid,
+                account_id = om.account_id,
+                order_uuid = om.uuid,
+                total = 0,
+                fee = maker_fee,
+                amount = 0
+            )
+            """
+
+            self.session.add(t)
+            #for x in (t, ts, ms):
+            #    self.session.add(x)
+            """
+            Buy 10 @ 21.50 -> Sell 5 @ 21.50
+            Trade:
+                price:       21.50
+                amount:      5
+                total:       107.50  (price * amount)
+
+            Side 1:
+                trade:        -> (pointer)
+                fee_rate:     .0026 (taker)
+                amount:       t.amount - (fee_rate * t.total)
+                total:        t.total - (fee_rate * t.total)
+
+            Side 2:
+                trade:        -> (pointer)
+                fee_rate:     .0016 (maker)
+                amount:       t.amount - (fee_rate * t.total)
+                total:        t.total - (fee_rate * t.total)
+            """
 
             buyer_id  = e.account_id if o.side == 'buy' else om.account_id
             seller_id = e.account_id if o.side == 'sell' else om.account_id
@@ -124,7 +208,7 @@ class EventRunner():
                 Ledger.asset_id,
                 func.sum(Ledger.amount).label('balance'),
             ).filter(
-                Ledger.account_id.in_((buyer_id, seller_id)),
+                Ledger.account_id.in_((buyer_id, seller_id, FEE_ACCOUNT_ID)),
                 Ledger.asset_id.in_((market.asset.id, market.uoa.id))
             ).group_by(Ledger.account_id, Ledger.asset_id)
 
@@ -139,31 +223,27 @@ class EventRunner():
                 (market.asset.id,  seller_id, tx_amt * -1),
                 (market.asset.id,  buyer_id,  tx_amt),
                 (market.uoa.id,    buyer_id,  tx_total * -1),
-                (market.uoa.id,    seller_id, tx_total)
+                (market.uoa.id,    seller_id, tx_total),
+
+                # Fee account
+                (market.uoa.id,    FEE_ACCOUNT_ID, maker_fee),
+                (market.uoa.id,    FEE_ACCOUNT_ID, taker_fee),
             ]
 
-            # Create 4 ledger entries
+            # Create ledger entries
             for values in ledgers:
                 l = Ledger(**dict(zip(keys, values)))
                 if l.asset_id in bal and l.account_id in bal[l.asset_id]:
                     l.balance = bal[l.asset_id][l.account_id] + l.amount
                 self.session.add(l)
 
-            # Create one anon trade
-            new_trade = model.Trade(  # Anonymous
-                account_id  = e.account_id,
-                market_id   = market.id,
-                price       = om.price,
-                amount      = tx_amt,
-                created     = e.created
-            )
-            self.session.add(new_trade)
+
 
             # Tee trade stream (todo)
             self.tf.append(market, ','.join([
-                new_trade.created.strftime(DT_FORMAT),
-                "%.10f" % new_trade.price,
-                "%.10f" % new_trade.amount
+                t.created.strftime(DT_FORMAT),
+                "%.10f" % t.price,
+                "%.10f" % t.amount
             ]))
 
             # New order balance and status
@@ -174,19 +254,8 @@ class EventRunner():
                 'fill', tx_amt, om.balance,
                 om.price, om.uuid, '', om.created))
 
-        new_order = Order(
-            account_id = e.account_id,
-            market_id  = o.market_id,
-            side       = o.side,
-            type       = o.type,
-            price      = o.price,
-            amount     = o.amount,
-            balance    = demand,
-            uuid       = e.uuid,
-            created    = e.created
-        )
-        new_order.status = self.get_order_status(new_order)
-        self.session.add(new_order)
+        o.status = self.get_order_status(o)
+        self.session.add(o)
 
         # Set event done
         e.status = 'done'
