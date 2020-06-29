@@ -132,20 +132,37 @@ class TradeSchema(Schema):
     uuid = fields.Str(dump_only=True)
 
     market = fields.Nested("MarketSchema", only=("id", "name"))
-    #account = fields.Nested("AccountSchema", only=("id", "name"))
-    order = fields.Nested("OrderSchema", only=("id", "status"))
     price = fields.Str(dump_only=True)
+    amount = fields.Str(dump_only=True)
+    total = fields.Str(dump_only=True)
+    created = fields.DateTime(dump_only=True, format=DT_FORMAT)
+
+class TradeSideSchema(Schema):
+    id = fields.Int(dump_only=True)
+    uuid = fields.Str(dump_only=True)
+
+    market = fields.Nested("MarketSchema", only=("id", "name"))
+    account = fields.Nested("AccountSchema", only=("id", "name"))
+    order = fields.Nested("OrderSchema")
+    type = fields.Str(dump_only=True)
+
+    trade = fields.Nested("TradeSchema")
+
+    fee_rate = fields.Str(dump_only=True)
+    fee = fields.Str(dump_only=True)
     amount = fields.Str(dump_only=True)
     created = fields.DateTime(dump_only=True, format=DT_FORMAT)
 
 class LedgerSchema(Schema):
     id = fields.Int(dump_only=True)
     uuid = fields.Str(dump_only=True)
-    #account_id = fields.Int()
+    type = fields.Str(dump_only=True)
     account = fields.Nested("AccountSchema", only=("id", "name"))
     asset = fields.Nested("AssetSchema")
-    order = fields.Nested("OrderSchema", only=("id", "status"))
-    trade = fields.Nested("TradeSchema", only=("id",))
+    trade_side = fields.Nested("TradeSideSchema")
+
+    trade_side_id = fields.Int()
+
     price = fields.Str(dump_only=True)
     amount = fields.Str(dump_only=True)
     balance = fields.Str(dump_only=True)
@@ -161,6 +178,7 @@ ENTITY_SCHEMA = {
     'event'  : EventSchema,
     'order'  : OrderSchema,
     'trade'  : TradeSchema,
+    'trade_side': TradeSideSchema,
     'ledger' : LedgerSchema
 }
 

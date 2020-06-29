@@ -1,0 +1,10 @@
+type,volume,maker,taker
+trade,0,16,26
+trade,50000,14,24
+trade,100000,12,22
+trade,250000,10,20
+trade,500000,8,18
+trade,1000000,6,16
+trade,2500000,4,14
+trade,5000000,2,12
+trade,10000000,0,10

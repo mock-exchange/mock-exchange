@@ -31,7 +31,7 @@ DAEMON_WAIT_SECS = 1.0
 
 ENTITY = model.tables()
 
-IMPORT_EXPORT_ENTITIES = ('asset','market','account')
+IMPORT_EXPORT_ENTITIES = ('asset','market','account','fee_schedule')
 
 class Main():
     def __init__(self):
@@ -99,18 +99,22 @@ class Main():
         getattr(self, 'cmd_' + args.command)(args)
 
     def cmd_start(self, args):
+        runner = EventRunner(self.session)
+        ohlc = OHLC(self.session, args)
+
         while True:
             # Not filtering by markets - run all.
-            EventRunner(self.session).run()
-            OHLC(self.session, args).update_cache()
+            runner.run()
+            ohlc.update_cache()
             if not args.daemon:
                 break
             print('Wait %.2f seconds.' % args.daemon)
             time.sleep(args.daemon)
 
     def cmd_events(self, args):
+        runner = EventRunner(self.session)
         while True:
-            EventRunner(self.session).run()
+            runner.run()
             if not args.daemon:
                 break
             print('Wait %.2f seconds.' % args.daemon)

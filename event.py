@@ -6,6 +6,7 @@ import shortuuid
 import time
 from collections import namedtuple
 from decimal import Decimal
+import math
 
 from sqlalchemy import create_engine, and_, or_, func
 from sqlalchemy.orm import Session, joinedload
@@ -13,16 +14,12 @@ from sqlalchemy.orm import Session, joinedload
 import model
 from config import SQL, DT_FORMAT
 from model import (
-    Account, Market, Asset, Event, Order, Trade, TradeSide, Ledger
+    Account, Market, Asset, Event, Order, Trade, TradeSide, Ledger,
+    FeeSchedule
 )
 from lib import random_dates, TradeFile
 
 BATCH_SIZE = 1000
-
-MAKER_FEE_RATE = Decimal(0.16 / 100)
-TAKER_FEE_RATE = Decimal(0.26 / 100)
-#MAKER_FEE_RATE = Decimal(1 / 100)
-#TAKER_FEE_RATE = Decimal(2 / 100)
 
 FEE_ACCOUNT_ID = 1
 
@@ -51,6 +48,30 @@ class EventRunner():
 
         return q.all()
 
+    def _get_fee_schedule(self):
+        self.sched = {}
+        q = self.session.query(FeeSchedule).order_by(
+            FeeSchedule.type.asc(),
+            FeeSchedule.volume.desc()
+        )
+        for r in q.all():
+            if r.type not in self.sched:
+                self.sched[r.type] = []
+            self.sched[r.type].append({
+                'min': r.volume,
+                'maker': r.maker / 10000,
+                'taker': r.taker / 10000
+            })
+
+    def _get_fee_rate(self, t, value):
+        rates = [None,None]
+        for r in self.sched[t]:
+            rates = [r['maker'], r['taker']]
+            if r['min'] < value:
+                break
+
+        return rates
+
     def get_body(self, e):
         return json.loads(e.body, object_hook=lambda d: namedtuple('eventBody', d.keys())(*d.values()))
 
@@ -70,7 +91,7 @@ class EventRunner():
         for a in db.query(Asset).all():
             self.assets[a.id] = a
 
-
+        self._get_fee_schedule()
 
         self.tf = TradeFile()
 
@@ -135,6 +156,26 @@ class EventRunner():
             if not demand:
                 break
 
+            # Get 30d account volume (TODO: Faster way to get this)
+            """
+            aq = self.session.query(
+                Ledger.account_id,
+                Ledger.asset_id,
+                func.sum(Ledger.amount).label('volume'),
+            ).filter(
+                Ledger.account_id.in_((o.account_id, om.account_id)),
+                Ledger.asset_id == market.uoa.id,
+                Ledger.created >= datetime.utcnow() - timedelta(30)
+            ).group_by(Ledger.account_id, Ledger.asset_id)
+            """
+            vol30d = {
+                o.account_id: 0,
+                om.account_id: 0
+            }
+            #for r in aq.all():
+            #    vol30d[r.account_id] = r.volume
+
+
             # Query balance to update running balance in ledger
             accounts = (o.account_id, om.account_id, FEE_ACCOUNT_ID)
             bq = self.session.query(
@@ -171,6 +212,10 @@ class EventRunner():
                 amount      = tx_amt,
             )
 
+            # The rate is determined by the 30d volume (maker, taker)
+            maker_rate = self._get_fee_rate('trade', vol30d[o.account_id])[0]
+            taker_rate = self._get_fee_rate('trade', vol30d[om.account_id])[1]
+
             # fee comes out of both sides
             ts = TradeSide(
                 uuid       = shortuuid.uuid(),
@@ -178,7 +223,7 @@ class EventRunner():
                 trade      = t,
                 order      = o,
                 type       = 'taker',
-                fee_rate   = TAKER_FEE_RATE,
+                fee_rate   = Decimal(taker_rate),
                 amount     = t.amount if o.side == 'buy' else t.total,
             )
             ms = TradeSide(
@@ -187,7 +232,7 @@ class EventRunner():
                 trade      = t,
                 order      = om,
                 type       = 'maker',
-                fee_rate   = MAKER_FEE_RATE,
+                fee_rate   = Decimal(maker_rate),
                 amount     = t.amount if om.side == 'buy' else t.total,
             )
 
@@ -200,13 +245,13 @@ class EventRunner():
             if e.account_id == buyer_id:
                 bside = ts
                 sside = ms
-                amt_fee = (t.amount * TAKER_FEE_RATE)
-                total_fee = (t.total * MAKER_FEE_RATE)
+                amt_fee = (t.amount * ts.fee_rate)
+                total_fee = (t.total * ms.fee_rate)
             else:
                 bside = ms
                 sside = ts
-                amt_fee = (t.amount * MAKER_FEE_RATE)
-                total_fee = (t.total * TAKER_FEE_RATE)
+                amt_fee = (t.amount * ms.fee_rate)
+                total_fee = (t.total * ts.fee_rate)
 
             keys = ['trade_side', 'account_id','asset_id','amount']
             ledgers = [

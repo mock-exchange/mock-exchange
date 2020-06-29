@@ -91,6 +91,25 @@ class Account(Base):
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
 
+class AccountAsset(Base):
+    __tablename__ = 'account_asset'
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, index=True)
+    asset_id = Column(Integer, index=True)
+    balance = MoneyColumn.copy()
+    vol30d = Column(Integer, default=0)
+
+class FeeSchedule(Base):
+    __tablename__ = 'fee_schedule'
+
+    id = Column(Integer, primary_key=True)
+    type = Column(Enum('trade'), default='trade', nullable=False)
+    volume = Column(Integer, nullable=False)
+    maker = Column(Integer, nullable=False)
+    taker = Column(Integer, nullable=False)
+
+
 class Event(Base):
     __tablename__ = 'event'
 
