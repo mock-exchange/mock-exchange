@@ -141,6 +141,15 @@ class Order(Base): # Append only, except balance & status
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
 
+# Deposit/Withdraw Request or PendingLedger
+# Amounts do not become available to trade/withdraw until x
+# number of confirmations.
+# The other party cares about withdraw confirmations. The exchange
+# cares about wd confirmations for balanced books.  If a wd doesn't
+# confirm... need to handle
+#class OutsideRequest(Base):
+#    __tablename__ = 'outside_request'
+
 class Trade(Base): # Append only
     __tablename__ = 'trade'
 
@@ -150,9 +159,6 @@ class Trade(Base): # Append only
 
     market_id = Column(Integer, ForeignKey('market.id'), nullable=False)
     market = relationship("Market")
-
-    #account_id = Column(Integer, ForeignKey('account.id'), nullable=False)
-    #account = relationship("Account")
 
     price = MoneyColumn.copy()
     amount = MoneyColumn.copy()
@@ -167,18 +173,24 @@ class TradeSide(Base): # Append only
     __tablename__ = 'trade_side'
 
     id = Column(Integer, primary_key=True)
+    uuid = Column(String(20), default=shortuuid.uuid,
+        nullable=False, unique=True, index=True)
+
+    type = Column(Enum('maker','taker'), nullable=False)
+
     trade_uuid = Column(String(20), ForeignKey('trade.uuid'), nullable=False)
     trade = relationship("Trade")
-
-    fee_rate = MoneyColumn.copy()
-    amount = MoneyColumn.copy()
-    total = MoneyColumn.copy()
-
-
     account_id = Column(Integer, ForeignKey('account.id'), nullable=False)
     account = relationship("Account")
     order_uuid = Column(String(20), ForeignKey('order.uuid'), nullable=True)
     order = relationship("Order")
+
+    fee_rate = MoneyColumn.copy()
+    amount = MoneyColumn.copy()
+
+    @hybrid_property
+    def fee(self):
+        return self.amount * self.fee_rate
 
     created = Column(DateTime, default=utcnow, index=True)
 
@@ -188,6 +200,7 @@ class Ledger(Base): # Append only
     id = Column(Integer, primary_key=True)
     uuid = Column(String(20), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
+    type = Column(Enum('deposit','withdraw','trade'), nullable=False)
 
     account_id = Column(Integer, ForeignKey('account.id'), nullable=False,
         index=True)
@@ -201,10 +214,8 @@ class Ledger(Base): # Append only
 
     # Origination References
     # Are all ledger entries tied to Order and Trade?
-    order_id = Column(Integer, ForeignKey('order.id'), nullable=True)
-    order = relationship("Order")
-    trade_id = Column(Integer, ForeignKey('trade.id'), nullable=True)
-    trade = relationship("Trade")
+    trade_side_id = Column(Integer, ForeignKey('trade_side.id'), nullable=True)
+    trade_side = relationship("TradeSide")
 
     created = Column(DateTime, default=utcnow)
 
