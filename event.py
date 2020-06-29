@@ -21,21 +21,10 @@ BATCH_SIZE = 1000
 
 MAKER_FEE_RATE = Decimal(0.16 / 100)
 TAKER_FEE_RATE = Decimal(0.26 / 100)
+#MAKER_FEE_RATE = Decimal(1 / 100)
+#TAKER_FEE_RATE = Decimal(2 / 100)
+
 FEE_ACCOUNT_ID = 1
-
-""" Methods to record fees
-
-Method #1 - Separate ledgers
-    ledger: fee account, +fee
-    ledger: fee account, +fee
-    ledger: buyer, -fee
-    ledger: seller, -fee
-
-Method #2 - Separate ledgers only for fee account
-
-Method #3 - Attribute on existing ledger entries
-
-"""
 
 class EventRunner():
     def __init__(self, session):
@@ -77,6 +66,12 @@ class EventRunner():
         for m in q.all():
             self.markets[m.id] = m
 
+        self.assets = {}
+        for a in db.query(Asset).all():
+            self.assets[a.id] = a
+
+
+
         self.tf = TradeFile()
 
         begin = time.time()
@@ -94,8 +89,8 @@ class EventRunner():
         for e in events:
             self.funcs[e.method](e)
 
-        #db.commit()
-        #self.tf.commit()
+        db.commit()
+        self.tf.commit()
         print("Handled %d events in %f seconds." % (len(events), time.time() - begin))
 
 
@@ -112,9 +107,9 @@ class EventRunner():
 
         market = self.markets[o.market_id]
 
-        print("%-12s %6s %-4s %10.4f @ %10.4f  %s\n%50.50s%s" % (
+        print("%-12s %6s %-4s %10.4f @ %10.4f   [account_id:%d]\n%s %23.23s %s" % (
             e.method, o.type, o.side, o.amount,
-            o.price, e.uuid, '',e.created))
+            o.price, e.account_id, e.created, '', e.uuid))
 
         where = [
             Order.market_id == o.market_id,       # This market
@@ -140,13 +135,33 @@ class EventRunner():
             if not demand:
                 break
 
+            # Query balance to update running balance in ledger
+            accounts = (o.account_id, om.account_id, FEE_ACCOUNT_ID)
+            bq = self.session.query(
+                Ledger.account_id,
+                Ledger.asset_id,
+                func.sum(Ledger.amount).label('balance'),
+            ).filter(
+                Ledger.account_id.in_(accounts),
+                Ledger.asset_id.in_((market.asset.id, market.uoa.id))
+            ).group_by(Ledger.account_id, Ledger.asset_id)
+
+            bal = {}
+
+            for i in (market.asset.id, market.uoa.id):
+                if i not in bal:
+                    bal[i] = {}
+                for j in accounts:
+                    bal[i][j] = 0
+
+
+            for b in bq.all():
+                if b.asset_id not in bal:
+                    bal[b.asset_id] = {}
+                bal[b.asset_id][b.account_id] = b.balance
             tx_amt = om.balance if demand > om.balance else demand
             tx_total = tx_amt * om.price
             demand -= tx_amt
-
-            taker_fee = tx_amt * TAKER_FEE_RATE
-            maker_fee = tx_amt * MAKER_FEE_RATE
-            tx_subamt = tx_amt - taker_fee - maker_fee
 
             t = Trade(
                 uuid        = shortuuid.uuid(),
@@ -157,87 +172,65 @@ class EventRunner():
             )
 
             # fee comes out of both sides
-            """
             ts = TradeSide(
-                trade_uuid = t.uuid,
+                uuid       = shortuuid.uuid(),
                 account_id = o.account_id,
-                order_uuid = o.uuid,
-                sub_amount =    # total amount
-                fee =           # fee
-                amount =        # total - fee
+                trade      = t,
+                order      = o,
+                type       = 'taker',
+                fee_rate   = TAKER_FEE_RATE,
+                amount     = t.amount if o.side == 'buy' else t.total,
             )
             ms = TradeSide(
-                trade_uuid = t.uuid,
+                uuid       = shortuuid.uuid(),
                 account_id = om.account_id,
-                order_uuid = om.uuid,
-                total = 0,
-                fee = maker_fee,
-                amount = 0
+                trade      = t,
+                order      = om,
+                type       = 'maker',
+                fee_rate   = MAKER_FEE_RATE,
+                amount     = t.amount if om.side == 'buy' else t.total,
             )
-            """
 
-            self.session.add(t)
-            #for x in (t, ts, ms):
-            #    self.session.add(x)
-            """
-            Buy 10 @ 21.50 -> Sell 5 @ 21.50
-            Trade:
-                price:       21.50
-                amount:      5
-                total:       107.50  (price * amount)
-
-            Side 1:
-                trade:        -> (pointer)
-                fee_rate:     .0026 (taker)
-                amount:       t.amount - (fee_rate * t.total)
-                total:        t.total - (fee_rate * t.total)
-
-            Side 2:
-                trade:        -> (pointer)
-                fee_rate:     .0016 (maker)
-                amount:       t.amount - (fee_rate * t.total)
-                total:        t.total - (fee_rate * t.total)
-            """
+            for x in (t, ts, ms):
+                self.session.add(x)
 
             buyer_id  = e.account_id if o.side == 'buy' else om.account_id
             seller_id = e.account_id if o.side == 'sell' else om.account_id
 
-            # Query balance to update running balance in ledger
-            bq = self.session.query(
-                Ledger.account_id,
-                Ledger.asset_id,
-                func.sum(Ledger.amount).label('balance'),
-            ).filter(
-                Ledger.account_id.in_((buyer_id, seller_id, FEE_ACCOUNT_ID)),
-                Ledger.asset_id.in_((market.asset.id, market.uoa.id))
-            ).group_by(Ledger.account_id, Ledger.asset_id)
+            if e.account_id == buyer_id:
+                bside = ts
+                sside = ms
+                amt_fee = (t.amount * TAKER_FEE_RATE)
+                total_fee = (t.total * MAKER_FEE_RATE)
+            else:
+                bside = ms
+                sside = ts
+                amt_fee = (t.amount * MAKER_FEE_RATE)
+                total_fee = (t.total * TAKER_FEE_RATE)
 
-            bal = {}
-            for b in bq.all():
-                if b.asset_id not in bal:
-                    bal[b.asset_id] = {}
-                bal[b.asset_id][b.account_id] = b.balance
-
-            keys = ['asset_id','account_id','amount']
+            keys = ['trade_side', 'account_id','asset_id','amount']
             ledgers = [
-                (market.asset.id,  seller_id, tx_amt * -1),
-                (market.asset.id,  buyer_id,  tx_amt),
-                (market.uoa.id,    buyer_id,  tx_total * -1),
-                (market.uoa.id,    seller_id, tx_total),
+                (sside, seller_id,      market.asset.id,  tx_amt   * -1),
+                (bside, buyer_id,       market.asset.id,  tx_amt - amt_fee),
+                (None,  FEE_ACCOUNT_ID, market.asset.id,  amt_fee),
 
-                # Fee account
-                (market.uoa.id,    FEE_ACCOUNT_ID, maker_fee),
-                (market.uoa.id,    FEE_ACCOUNT_ID, taker_fee),
+                (bside, buyer_id,       market.uoa.id,    tx_total * -1),
+                (sside, seller_id,      market.uoa.id,    tx_total - total_fee),
+                (None,  FEE_ACCOUNT_ID, market.uoa.id,    total_fee),
             ]
 
             # Create ledger entries
+            sum1 = 0
             for values in ledgers:
                 l = Ledger(**dict(zip(keys, values)))
+                l.type = 'trade'
                 if l.asset_id in bal and l.account_id in bal[l.asset_id]:
                     l.balance = bal[l.asset_id][l.account_id] + l.amount
                 self.session.add(l)
-
-
+                sum1 += int(float(l.amount)*100)
+                print("%3s %4d %8.2f" % (
+                    self.assets[l.asset_id].symbol, l.account_id, l.amount))
+            print('SUM:',sum1)
 
             # Tee trade stream (todo)
             self.tf.append(market, ','.join([
@@ -250,9 +243,10 @@ class EventRunner():
             om.balance = om.balance - tx_amt
             om.status = self.get_order_status(om)
 
-            print("%12s %10.4f  %10.4f @ %10.4f  %s\n%50.50s%s" % (
-                'fill', tx_amt, om.balance,
-                om.price, om.uuid, '', om.created))
+            print("%12s %10.4f  %10.4f @ %10.4f   [account_id:%d]\n   %s %23.23s %s" % (
+            'fill', tx_amt, om.balance,
+            om.price, om.account_id, om.created, '', e.uuid))
+
 
         o.status = self.get_order_status(o)
         self.session.add(o)
@@ -302,4 +296,27 @@ class EventRunner():
         )
         self.session.add(l)
         e.status = 'done'
+
+
+"""
+Fees
+
+Trade 5 @ $20.00 (Eric buys)
+
+Method #1 (balanced; fees):            unit of account (balanced)
+SHT Shawn   -5.00                      -100.00
+USD Eric  -100.00                      -100.00
+SHT Eric     4.90 (2% taker: 0.10)       98.00
+USD Shawn   99.00 (1% maker: 1.00)       99.00
+USD Exchg    1.00                         1.00
+SHT Exchg    0.10                         2.00
+
+Method #2 (unbalanced; convert fee):   unit of account (balanced)
+SHT Shawn   -5.00                      -100.00
+USD Eric  -100.00                      -100.00
+SHT Eric     4.90 (2% taker: 0.10)       98.00
+USD Shawn   99.00 (1% maker: 1.00)       99.00
+USD Exchg    3.00 (convert to USD)        3.00
+
+"""
 
