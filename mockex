@@ -12,13 +12,15 @@ from sqlalchemy.orm import Session, joinedload
 
 from config import DT_FORMAT, SQL, DATA_DIR, CACHE_DIR, CSV_OPTS
 import model
-from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
+from model import (
+    Account, Market, Asset, Event, Order, Trade, TradeSide, Ledger
+)
 from ohlc import OHLC
 from event import EventRunner
 
 
 #from sqlalchemy.schema import CreateTable
-#print(CreateTable(Trade.__table__))
+#print(CreateTable(TradeSide.__table__))
 #sys.exit(1)
 
 #import logging
