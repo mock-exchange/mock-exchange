@@ -240,7 +240,6 @@ def get_last_trades(market):
     result = TradeFile().get(m)
     return jsonify(result)
 
-
 # Get account balance
 @app.route('/api/balance', methods=["GET"])
 def get_balance():
@@ -258,6 +257,17 @@ def get_balance():
 
     return jsonify(result)
 
+# Wealth distribution
+@app.route('/api/wealth', methods=["GET"])
+def get_wealth():
+    sql = SQL['wealth']
+    rs = db.engine.execute(sql)
+
+    result = []
+    for row in rs:
+        result.append(dict(row))
+
+    return jsonify(result)
 
 
 # Get one
