@@ -43,11 +43,23 @@ def tables():
 
 # Exchange data
 
+"""
+type = Column(Enum('trade', name='fee_type'), default='trade', nullable=False)
+method = Column(Enum('place-order','cancel-order','deposit', 'withdraw', name='event_method'), nullable=False)
+status = Column(Enum('new','done', name='event_status'), default='new')
+side = Column(Enum('buy','sell', name='order_side'), nullable=False)
+type = Column(Enum('limit','market', name='order_type'), nullable=False)
+status = Column(Enum('open','partial','closed','canceled', name='order_status'), default='open')
+side = Column(Enum('buy','sell', name='trade_side'), nullable=False)
+type = Column(Enum('maker','taker', name='trade_side_type'), nullable=False)
+type = Column(Enum('deposit','withdraw','trade', name='ledger_type'), nullable=False)
+"""
+
 class Asset(Base):
     __tablename__ = 'asset'
 
     id = Column(Integer, primary_key=True)
-    uuid = Column(String(20), default=shortuuid.uuid,
+    uuid = Column(String(22), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
 
     symbol = Column(String(10))
@@ -62,7 +74,7 @@ class Market(Base):
     __tablename__ = 'market'
 
     id = Column(Integer, primary_key=True)
-    uuid = Column(String(20), default=shortuuid.uuid,
+    uuid = Column(String(22), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
 
     code = Column(String(15), nullable=True)
@@ -80,7 +92,7 @@ class Account(Base):
     __tablename__ = 'account'
 
     id = Column(Integer, primary_key=True)
-    uuid = Column(String(20), default=shortuuid.uuid,
+    uuid = Column(String(22), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
 
     email = Column(String(255), nullable=False, unique=True)
@@ -104,7 +116,7 @@ class FeeSchedule(Base):
     __tablename__ = 'fee_schedule'
 
     id = Column(Integer, primary_key=True)
-    type = Column(Enum('trade'), default='trade', nullable=False)
+    type = Column(Enum('trade', name='fee_type'), default='trade', nullable=False)
     volume = Column(Integer, nullable=False)
     maker = Column(Integer, nullable=False)
     taker = Column(Integer, nullable=False)
@@ -114,15 +126,16 @@ class Event(Base):
     __tablename__ = 'event'
 
     id = Column(Integer, primary_key=True)
-    uuid = Column(String(20), default=shortuuid.uuid,
+    uuid = Column(String(22), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
 
     method = Column(Enum(
         'place-order','cancel-order',
-        'deposit', 'withdraw'
+        'deposit', 'withdraw',
+        name='event_method'
     ), nullable=False)
     body = Column(Text()) # json payload
-    status = Column(Enum('new','done'), default='new')
+    status = Column(Enum('new','done', name='event_status'), default='new')
 
     account_id = Column(Integer, ForeignKey('account.id'), nullable=True)
     account = relationship("Account")
@@ -140,7 +153,7 @@ class Order(Base): # Append only, except balance & status
         super(Order, self).__init__(**kwargs)
 
     id = Column(Integer, primary_key=True)
-    uuid = Column(String(20), default=shortuuid.uuid,
+    uuid = Column(String(22), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
 
     account_id = Column(Integer, ForeignKey('account.id'), nullable=False)
@@ -152,13 +165,25 @@ class Order(Base): # Append only, except balance & status
     amount = MoneyColumn.copy()
     balance = MoneyColumn.copy()
 
-    side = Column(Enum('buy','sell'), nullable=False)
-    type = Column(Enum('limit','market'), nullable=False)
-    status = Column(Enum('open','partial','closed','canceled'), default='open')
+    side = Column(Enum('buy','sell', name='order_side'), nullable=False)
+    type = Column(Enum('limit','market', name='order_type'), nullable=False)
+    status = Column(Enum('open','partial','closed','canceled', name='order_status'), default='open')
     # open, partial, closed, canceled
     # open, partial orders should be deducted from account balance. It is reserved
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
+
+"""
+class MemOrder(Base):  # Order book state
+    __tablename__ = 'mem_order'
+    id = Column(Integer, primary_key=True)
+    market_id = Column(Integer, index=True)
+    account_id = Column(Integer, index=True)
+    price = MoneyColumn.copy()
+    balance = MoneyColumn.copy()
+    side = Column(Enum('buy','sell'), nullable=False)
+"""
+
 
 # Deposit/Withdraw Request or PendingLedger
 # Amounts do not become available to trade/withdraw until x
@@ -173,7 +198,7 @@ class Trade(Base): # Append only
     __tablename__ = 'trade'
 
     id = Column(Integer, primary_key=True)
-    uuid = Column(String(20), default=shortuuid.uuid,
+    uuid = Column(String(22), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
 
     market_id = Column(Integer, ForeignKey('market.id'), nullable=False)
@@ -192,16 +217,16 @@ class TradeSide(Base): # Append only
     __tablename__ = 'trade_side'
 
     id = Column(Integer, primary_key=True)
-    uuid = Column(String(20), default=shortuuid.uuid,
+    uuid = Column(String(22), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
 
-    type = Column(Enum('maker','taker'), nullable=False)
+    type = Column(Enum('maker','taker', name='trade_type'), nullable=False)
 
-    trade_uuid = Column(String(20), ForeignKey('trade.uuid'), nullable=False)
+    trade_uuid = Column(String(22), ForeignKey('trade.uuid'), nullable=False)
     trade = relationship("Trade")
     account_id = Column(Integer, ForeignKey('account.id'), nullable=False)
     account = relationship("Account")
-    order_uuid = Column(String(20), ForeignKey('order.uuid'), nullable=True)
+    order_uuid = Column(String(22), ForeignKey('order.uuid'), nullable=True)
     order = relationship("Order")
 
     fee_rate = MoneyColumn.copy()
@@ -217,9 +242,9 @@ class Ledger(Base): # Append only
     __tablename__ = 'ledger'
 
     id = Column(Integer, primary_key=True)
-    uuid = Column(String(20), default=shortuuid.uuid,
+    uuid = Column(String(22), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
-    type = Column(Enum('deposit','withdraw','trade'), nullable=False)
+    type = Column(Enum('deposit','withdraw','trade', name='ledger_type'), nullable=False)
 
     account_id = Column(Integer, ForeignKey('account.id'), nullable=False,
         index=True)
