@@ -18,20 +18,18 @@ from marshmallow import post_dump
 import redis
 import rq
 
-import testqueue
-
-from config import SQL, DT_FORMAT, DB_CONN
+import config as cfg
+from config import SQL, DT_FORMAT
 import model
 from lib import TradeFile
 import ohlc
-from ohlc import OHLC
 
 app = Flask(__name__, static_folder='build', static_url_path='/')
 
-app.config['SQLALCHEMY_DATABASE_URI'] = DB_CONN
+app.config['SQLALCHEMY_DATABASE_URI'] = cfg.DB_CONN
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-conn = redis.from_url('redis://')
+conn = redis.from_url(cfg.RQ_CONN)
 db = SQLAlchemy(app)
 
 #app.config['STATIC_FOLDER'] = 'foo'
@@ -209,7 +207,7 @@ def get_ohlc(market, interval):
     if interval not in ohlc.INTERVALS:
         return {"message": "Invalid interval"}, 400
 
-    result = OHLC(db.session).get_cached(m, interval)
+    result = ohlc.OHLC(db.session).get_cached(m, interval)
     return jsonify(result)
 
 @app.route('/api/<string:market>/book', methods=["GET"])
@@ -236,7 +234,7 @@ def get_last24(market):
     if not m and market != 'all':
         return {"message": "Invalid market"}, 400
 
-    result = OHLC(db.session).get_last24_cached(m)
+    result = ohlc.OHLC(db.session).get_last24_cached(m)
     return jsonify(result)
 
 @app.route('/api/<string:market>/last_trades', methods=["GET"])
