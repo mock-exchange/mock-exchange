@@ -3,6 +3,7 @@
 import re
 import json
 import time
+import shortuuid
 
 from sqlalchemy import create_engine, and_, or_, dialects, func, update
 from sqlalchemy.exc import IntegrityError
@@ -14,7 +15,12 @@ from flask_sqlalchemy import SQLAlchemy
 from marshmallow import Schema, fields, ValidationError, pre_load
 from marshmallow import post_dump
 
-from config import SQL, DT_FORMAT
+import redis
+import rq
+
+import testqueue
+
+from config import SQL, DT_FORMAT, DB_CONN
 import model
 from lib import TradeFile
 import ohlc
@@ -22,12 +28,13 @@ from ohlc import OHLC
 
 app = Flask(__name__, static_folder='build', static_url_path='/')
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mockex.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = DB_CONN
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+conn = redis.from_url('redis://')
+db = SQLAlchemy(app)
 
 #app.config['STATIC_FOLDER'] = 'foo'
-db = SQLAlchemy(app)
 
 
 class AccountSchema(Schema):
@@ -70,7 +77,6 @@ class ValidateEventBody():
             'place-order': (
                 ('price', 1.1),
                 ('amount',1.1),
-                ('market_id',1),
                 ('type', ('market','limit')),
                 ('side', ('buy','sell')),
              ),
@@ -190,7 +196,9 @@ def get_market(code):
         for m in db.session.query(model.Market).all():
             MARKETS_CACHE[m.code] = m
         MARKETS_CACHE_TIME = time.time()
-    return MARKETS_CACHE[code]
+    if code in MARKETS_CACHE:
+        return MARKETS_CACHE[code]
+    return None
 
 @app.route('/api/<string:market>/ohlc/<string:interval>', methods=["GET"])
 def get_ohlc(market, interval):
@@ -357,8 +365,55 @@ def get_entity_list(entity):
 
     return jsonify(result)
 
+
+
+@app.route("/api/event/<string:market>", methods=["POST"])
+def create_event(market):
+    m = get_market(market)
+    if not m:
+        return {"message": "Invalid market"}, 400
+
+    #return {"market.code": m.code}
+
+    Entity = ENTITY['event']
+    Schema = ENTITY_SCHEMA['event']
+
+    json_data = request.get_json()
+    if not json_data:
+        return {"message": "No input data provided"}, 400
+    # Validate and deserialize input
+    try:
+        data = Schema().load(json_data)
+    except ValidationError as err:
+        return err.messages, 422
+
+    # Payload validation
+    try:
+        body = ValidateEventBody().load(data)
+    except ValidationError as err:
+        return err.messages, 422
+
+    # Account balance validation
+
+    # Add to queue
+    #with rq.Connection(conn):
+    if True:
+        data['uuid'] = shortuuid.uuid()
+        e = Entity(**data)
+        db.session.add(e)
+        db.session.commit()
+
+        q = rq.Queue(m.code, connection=conn)
+        job = q.enqueue('tasks.event', data, job_id=data['uuid'])
+        task_id = job.get_id()
+
+    result = Schema().dump(e)
+    del result['id']
+    return {"message": "Event queued.", "event": result}
+
+
 # Create
-@app.route("/api/<string:entity>", methods=["POST"])
+#@app.route("/api/<string:entity>", methods=["POST"])
 def create_entity(entity):
     if entity not in ENTITY.keys():
         return {"message": "No such entity"}, 400
@@ -375,13 +430,6 @@ def create_entity(entity):
     except ValidationError as err:
         return err.messages, 422
 
-    # Special validation
-    if Entity == model.Event:
-        try:
-            body = ValidateEventBody().load(data)
-        except ValidationError as err:
-            return err.messages, 422
-
     new_entity = Entity(
         **data
     )
@@ -389,7 +437,7 @@ def create_entity(entity):
     db.session.commit()
     entity_out = db.session.query(Entity).get(new_entity.id)
     result = EntitySchema().dump(entity_out)
-    return {"message": "Created new " + entity + ".", entity: result}
+    return {"message": entity.capitalize() + " created.", entity: result}
 
 
 #@app.route('/', defaults={'path': ''})
