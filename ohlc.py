@@ -83,6 +83,14 @@ TRUNCATE = {
     '5m': '5_minute'
 }
 
+PG_TRUNCATE = {
+    '1d'  : '1 day',
+    '6h'  : '6 hour',
+    '1h'  : '1 hour',
+    '15m' : '15 minute',
+    '5m'  : '5 minute'
+}
+
 JSONL_KEYS = ('dt', 'time', 'open', 'high', 'low', 'close', 'volume', 'value')
 
 class OHLC:
@@ -564,9 +572,10 @@ class OHLC:
         if (not start or not end):
             (start, end) = self.get_date_range(interval)
 
+        #sql = SQL['ohlc_sqlite']
         sql = SQL['ohlc']
 
-        dt_func = {
+        dt_func_sqlite = {
             '1m': """
                 CAST(strftime('%Y-%m-%d %H:%M', {value}) AS TEXT) || ':00'
             """,
@@ -592,11 +601,56 @@ class OHLC:
                 date({value}) || ' 00:00:00'
             """
         }
-        
+
+        dt_func = {
+            '1m': """
+                (to_char({value}, 'YYYY-MM-DD HH24:MI') || ':00')::timestamp
+            """,
+            '5m': """
+                (to_char({value}, 'YYYY-MM-DD HH24:') ||
+                to_char(
+                floor(extract(minute from {value})::numeric / 5) * 5, 'fm00')
+                || ':00')::timestamp
+            """,
+            '15m': """
+                (to_char({value}, 'YYYY-MM-DD HH24:') ||
+                to_char(
+                floor(extract(minute from {value})::numeric / 15) * 15, 'fm00')
+                || ':00')::timestamp
+            """,
+            '1h': """
+                (to_char({value}, 'YYYY-MM-DD HH24') || ':00:00')::timestamp
+            """,
+            '6h': """
+                (to_char({value}, 'YYYY-MM-DD ') ||
+                to_char(
+                floor(extract(hour from {value})::numeric / 6) * 6, 'fm00')
+                || ':00:00')::timestamp
+            """,
+            '1d': """
+                (to_char({value}, 'YYYY-MM-DD') || ' 00:00:00')::timestamp
+
+            """
+        }
+        """
+to_timestamp('2020-07-09 17:21:55', 'YYYY-MM-DD HH24:MI:SS')::timestamp without time zone;
+
+select generate_series(timestamp '2000-01-01 00:00', timestamp '2000-01-02 00:00', interval '5 min')
+
+        """
+
         (num, attr) = INTERVAL_PARTS[interval]
         ATTR_WORD[attr]
 
+        trunc_interval = PG_TRUNCATE[interval]
         sqlparts = {
+            'start': truncate(start, TRUNCATE[interval]).strftime(DT_FORMAT),
+            'end': truncate(end, TRUNCATE[interval]).strftime(DT_FORMAT),
+            'interval': trunc_interval,
+            'convert': dt_func[interval].format(value="created")
+        }
+
+        sqlparts_sqlite = {
             'start': dt_func[interval].format(value="datetime('"+str(start)+"')"),
             'end': dt_func[interval].format(value="datetime('"+str(end)+"')"),
             #'start': "datetime('{}')".format(start),
@@ -606,7 +660,12 @@ class OHLC:
         }
         sql = sql.format(**sqlparts)
 
+
         conn = self.db.connection()
+        #sql = re.sub('\?', str(market_id),sql)
+        #print('-' * 75)
+        #print(sql)
+        #print('-' * 75)
         q = conn.execute(sql, (market_id,))
 
         result = []

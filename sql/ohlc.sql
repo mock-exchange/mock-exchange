@@ -4,16 +4,16 @@
 
 
 -- Generate datetime range
-WITH RECURSIVE dtrange(period) AS (
-  -- VALUES(strftime('%Y-%m-%d %H:00:00', datetime('now', '-48 hours')))
-  VALUES({start})
-
-  UNION ALL
-  SELECT datetime(period, '{step}')
-  FROM dtrange
-  WHERE period < {end}
-
+WITH dtrange AS (
+    SELECT
+        period
+    FROM generate_series(
+        '{start}'::timestamp,
+        '{end}'::timestamp,
+        '{interval}'
+    ) AS period
 ),
+
 
 ohlc AS (
     SELECT
@@ -25,25 +25,25 @@ ohlc AS (
         SUM(iv.amount) over w AS volume
     FROM (
         SELECT
-            {interval} AS time,
+            {convert} AS time,
             amount,
             price
         FROM trade
-        WHERE market_id = ?
-        AND created BETWEEN {start} AND {end}
+        WHERE market_id = %s
+        AND created BETWEEN '{start}'::timestamp AND '{end}'::timestamp
     ) AS iv
     window w AS (partition BY iv.time)
 )
 
 SELECT
-    strftime('%Y-%m-%dT%H:%M:%SZ', period) as dt,
-    CAST(strftime('%s',period) AS INT) as time,
-    COALESCE(ohlc.open,0) as open,
-    COALESCE(ohlc.high,0) as high,
-    COALESCE(ohlc.low,0) as low,
-    COALESCE(ohlc.close,0) as close,
-    COALESCE(ohlc.volume,0) as volume,
-    COALESCE(ohlc.volume,0) as value
+    to_char(period, 'YYYY-MM-DD') || 'T' || to_char(period,'HH:MI:SSZ') as dt,
+    extract(epoch from period)::text as time,
+    COALESCE(ohlc.open,0)::text as open,
+    COALESCE(ohlc.high,0)::text as high,
+    COALESCE(ohlc.low,0)::text as low,
+    COALESCE(ohlc.close,0)::text as close,
+    COALESCE(ohlc.volume,0)::text as volume,
+    COALESCE(ohlc.volume,0)::text as value
 FROM dtrange
 LEFT JOIN ohlc
     ON dtrange.period = ohlc.time
