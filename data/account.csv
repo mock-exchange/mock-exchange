@@ -1,5 +1,7 @@
 id,title,email,name,location
 1,Exchange,exchange@email.com,Exchange Fees,Internet
+20,Washer,wash_acct1@email.com,Wash Account 1,Shaddy Place
+21,Washer,wash_acct2@email.com,Wash Account 2,Shaddy Place
 100,Mobile Developer,Josh_Malone7293@irrepsy.com,Josh Malone,Seattle
 102,Chef Manager,Hayden_Knight4417@irrepsy.com,Hayden Knight,Atlanta
 103,Insurance Broker,Tony_Dillon2519@ovock.tech,Tony Dillon,San Jose
