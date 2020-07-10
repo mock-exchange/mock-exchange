@@ -7,46 +7,180 @@ import time
 from collections import namedtuple
 from decimal import Decimal
 import math
+import copy
+
+import redis
+from rq import Connection, Queue, Worker
+from rq.job import Job
 
 from sqlalchemy import create_engine, and_, or_, func
 from sqlalchemy.orm import Session, joinedload
 
 import model
-from config import SQL, DT_FORMAT
+import config as cfg
+from config import SQL, DT_FORMAT, DB_CONN
 from model import (
     Account, Market, Asset, Event, Order, Trade, TradeSide, Ledger,
     FeeSchedule
 )
 from lib import random_dates, TradeFile
+from ohlc import OHLC
 
-BATCH_SIZE = 1000
+from sqlalchemy.schema import CreateTable
+from sqlalchemy.orm.session import make_transient
+
+BATCH_SIZE = 1
 
 FEE_ACCOUNT_ID = 1
 
+conn = redis.from_url(cfg.RQ_CONN)
+
+
+class CustomJob(Job):
+    def _execute(self):
+        # EventRunner.run_one() knows how to call rq funcname
+        getattr(self, '_evref').run_one(*self.args)
+
+class SimpleWorker(Worker):
+    job_class = CustomJob
+
+    def __init__(self, *args, **kwargs):
+        # Take in reference to EventRunner
+        self._evref = kwargs.get('_evref')
+        del kwargs['_evref']
+        super().__init__(*args, **kwargs)
+
+    def main_work_horse(self, *args, **kwargs):
+        raise NotImplementedError("Test worker does not implement this method")
+
+    def execute_job(self, job, queue):
+        # Give CustomJob a reference to EventRunner
+        setattr(job, '_evref', self._evref)
+        """Execute job in same thread/process, do not fork()"""
+        timeout = (job.timeout or DEFAULT_WORKER_TTL) + 60
+        return self.perform_job(job, queue, heartbeat_ttl=timeout)
+
+
+
 class EventRunner():
     def __init__(self, session):
-        self.session = session
+        db = self.session = session
+
+        """
+        if os.path.exists('tmp.db'):
+            os.remove('tmp.db')
+
+        self.mengine = create_engine('sqlite://')
+        self.msession = Session(self.mengine)
+        """
 
         self.funcs = {
-            'deposit'      : self.event_deposit,
-            'withdraw'     : self.event_withdraw,
-            'cancel-order' : self.event_cancel_order,
-            'place-order'  : self.event_place_order
+            'deposit'      : self.deposit,
+            'withdraw'     : self.withdraw,
+            'cancel-order' : self.cancel_order,
+            'place-order'  : self.place_order
         }
 
-    def _get_markets(self, markets=['all']):
-        filters = []
-        if 'all' not in markets:
-            filters.append(Market.code.in_(markets))
-        q = self.db.query(
-            Market.id,
-            Market.code,
-            Market.name,
-            func.min(Trade.created).label('first_trade'),
-            func.max(Trade.created).label('last_trade')
-        ).join(Trade).filter(*filters).group_by(Market.id)
+        """
+        c = self.mengine.connect()
+        sql = CreateTable(Order.__table__)
+        print(sql)
+        c.execute(sql)
+        q = db.query(Order).filter(Order.status.in_(['open','partial']))
+        cnt = 0
+        for o in q.all():
+            cnt += 1
+            make_transient(o)
+            self.msession.add(o)
+        
+        self.msession.commit()
+        print('cnt:',cnt)
+        """
 
-        return q.all()
+        #for o in self.msession.query(Order).all():
+        #    print(o.__dict__)
+
+        self.markets = {}
+        self.assets = {}
+
+        q = db.query(Market).options(
+            joinedload(Market.asset, innerjoin=True),
+            joinedload(Market.uoa, innerjoin=True)
+        )
+
+        for m in q.all():
+            self.markets[m.id] = m
+
+        for a in db.query(Asset).all():
+            self.assets[a.id] = a
+
+        self._get_fee_schedule()
+
+        self.tf = TradeFile()
+
+    def run(self):
+        self.run_from_rq()
+
+    def run_from_rq(self):
+        with Connection():
+            queue = Queue('shtusd')
+            worker = SimpleWorker([queue], connection=conn, _evref=self)
+            worker.work(burst=False)
+        print('done run()')
+
+    def run_from_db(self):
+        db = self.session
+
+        begin = time.time()
+
+        events = db.query(Event).filter_by(status='new').\
+            order_by(Event.created.asc()).limit(10000).all()
+            #events = q.all()
+        if not len(events):
+            print('No events.')
+            return
+
+        print('Running %d events..' % len(events))
+
+        chunk = events[:BATCH_SIZE]
+
+        for e in chunk:
+            self.funcs[e.method](e)
+        db.commit()
+        #self.msession.commit()
+
+        #self.tf.commit()
+        elapsed = time.time() - begin
+        print("Handled %d of %d events in %.2f seconds. %.2f e/s" % (
+            len(chunk), len(events), elapsed, len(chunk) / elapsed
+        ))
+
+
+    def run_one(self, data):
+        print('EventRunner.run_one()')
+        db = self.session
+        begin = time.time()
+
+        e = db.query(Event).filter_by(uuid=data['uuid']).one_or_none()
+        if not e:
+            print('ERROR No db event.')
+            return
+
+        self.funcs[e.method](e)
+
+        db.commit()
+        self.tf.commit()
+
+        elapsed = time.time() - begin
+
+        e.runtime = int(elapsed * 1000)
+        db.commit()
+
+        OHLC(self.session).update_cache(['shtusd'])
+
+
+        print("run_once() handled in %.5f seconds." % (elapsed,))
+
 
     def _get_fee_schedule(self):
         self.sched = {}
@@ -75,47 +209,8 @@ class EventRunner():
     def get_body(self, e):
         return json.loads(e.body, object_hook=lambda d: namedtuple('eventBody', d.keys())(*d.values()))
 
-    def run(self):
-        db = self.session
 
-        q = db.query(Market).options(
-            joinedload(Market.asset, innerjoin=True),
-            joinedload(Market.uoa, innerjoin=True)
-        )
-        self.markets = {}
-
-        for m in q.all():
-            self.markets[m.id] = m
-
-        self.assets = {}
-        for a in db.query(Asset).all():
-            self.assets[a.id] = a
-
-        self._get_fee_schedule()
-
-        self.tf = TradeFile()
-
-        begin = time.time()
-
-        q = db.query(Event).filter_by(status='new').\
-            order_by(Event.created.asc()).limit(BATCH_SIZE)
-
-        events = q.all()
-        if not len(events):
-            print('No events.')
-            return
-
-        print('Running %d events..' % len(events))
-
-        for e in events:
-            self.funcs[e.method](e)
-
-        db.commit()
-        self.tf.commit()
-        print("Handled %d events in %f seconds." % (len(events), time.time() - begin))
-
-
-    def event_place_order(self, e):
+    def place_order(self, e):
 
         # Create new order (add to session at the end)
         new_order = json.loads(e.body)
@@ -131,6 +226,11 @@ class EventRunner():
         print("%-12s %6s %-4s %10.4f @ %10.4f   [account_id:%d]\n%s %23.23s %s" % (
             e.method, o.type, o.side, o.amount,
             o.price, e.account_id, e.created, '', e.uuid))
+
+
+        # SET: market_id, account_id, price, side, status, balance, id
+        # ORDER: price, id
+        # FILTER: market_id, account_id, price, side, status
 
         where = [
             Order.market_id == o.market_id,       # This market
@@ -151,7 +251,8 @@ class EventRunner():
         q = self.session.query(Order).filter(and_(*where)).order_by(*order)
 
         demand = o.amount
-        for om in q.all():
+        bitches = q.all()
+        for om in bitches:
             # Fill until demand is empty
             if not demand:
                 break
@@ -177,7 +278,9 @@ class EventRunner():
 
 
             # Query balance to update running balance in ledger
+
             accounts = (o.account_id, om.account_id, FEE_ACCOUNT_ID)
+            """
             bq = self.session.query(
                 Ledger.account_id,
                 Ledger.asset_id,
@@ -186,7 +289,7 @@ class EventRunner():
                 Ledger.account_id.in_(accounts),
                 Ledger.asset_id.in_((market.asset.id, market.uoa.id))
             ).group_by(Ledger.account_id, Ledger.asset_id)
-
+            """
             bal = {}
 
             for i in (market.asset.id, market.uoa.id):
@@ -195,11 +298,12 @@ class EventRunner():
                 for j in accounts:
                     bal[i][j] = 0
 
-
+            """
             for b in bq.all():
                 if b.asset_id not in bal:
                     bal[b.asset_id] = {}
                 bal[b.asset_id][b.account_id] = b.balance
+            """
             tx_amt = om.balance if demand > om.balance else demand
             tx_total = tx_amt * om.price
             demand -= tx_amt
@@ -221,7 +325,7 @@ class EventRunner():
                 uuid       = shortuuid.uuid(),
                 account_id = o.account_id,
                 trade      = t,
-                order      = o,
+                order_uuid = o.uuid,
                 type       = 'taker',
                 fee_rate   = Decimal(taker_rate),
                 amount     = t.amount if o.side == 'buy' else t.total,
@@ -230,7 +334,7 @@ class EventRunner():
                 uuid       = shortuuid.uuid(),
                 account_id = om.account_id,
                 trade      = t,
-                order      = om,
+                order_uuid = om.uuid,
                 type       = 'maker',
                 fee_rate   = Decimal(maker_rate),
                 amount     = t.amount if om.side == 'buy' else t.total,
@@ -284,15 +388,22 @@ class EventRunner():
                 "%.10f" % t.amount
             ]))
 
-            # New order balance and status
+            #om2 = copy.deepcopy(om)
+
+            # New order balance and status (in memory)
             om.balance = om.balance - tx_amt
             om.status = self.get_order_status(om)
 
+            # (on disk db)
+            #make_transient(om2)
+            #om2 = self.session.merge(om2)
+            #om2.balance = om.balance
+            #om2.status = om.status
             print("%12s %10.4f  %10.4f @ %10.4f   [account_id:%d]\n   %s %23.23s %s" % (
             'fill', tx_amt, om.balance,
             om.price, om.account_id, om.created, '', e.uuid))
 
-
+        o.balance = demand
         o.status = self.get_order_status(o)
         self.session.add(o)
 
@@ -307,7 +418,7 @@ class EventRunner():
         else:
             return 'open'
 
-    def event_cancel_order(self, e):
+    def cancel_order(self, e):
         p = json.loads(e.body)
         uuid = p['uuid']
         o = self.session.query(Order).filter(
@@ -320,7 +431,7 @@ class EventRunner():
             o.status = 'canceled'
         e.status = 'done'
 
-    def event_deposit(self, e):
+    def deposit(self, e):
         p = json.loads(e.body)
 
         l = model.Ledger(
@@ -331,7 +442,7 @@ class EventRunner():
         self.session.add(l)
         e.status = 'done'
 
-    def event_withdraw(self, e):
+    def withdraw(self, e):
         p = json.loads(e.body)
 
         l = model.Ledger(
@@ -349,19 +460,20 @@ Fees
 Trade 5 @ $20.00 (Eric buys)
 
 Method #1 (balanced; fees):            unit of account (balanced)
-SHT Shawn   -5.00                      -100.00
+SHT Wayne   -5.00                      -100.00
 USD Eric  -100.00                      -100.00
 SHT Eric     4.90 (2% taker: 0.10)       98.00
-USD Shawn   99.00 (1% maker: 1.00)       99.00
+USD Wayne   99.00 (1% maker: 1.00)       99.00
 USD Exchg    1.00                         1.00
 SHT Exchg    0.10                         2.00
 
 Method #2 (unbalanced; convert fee):   unit of account (balanced)
-SHT Shawn   -5.00                      -100.00
+SHT Wayne   -5.00                      -100.00
 USD Eric  -100.00                      -100.00
 SHT Eric     4.90 (2% taker: 0.10)       98.00
-USD Shawn   99.00 (1% maker: 1.00)       99.00
+USD Wayne   99.00 (1% maker: 1.00)       99.00
 USD Exchg    3.00 (convert to USD)        3.00
 
 """
+
 

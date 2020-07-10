@@ -9,8 +9,9 @@ import time
 from datetime import datetime
 from sqlalchemy import create_engine, and_, or_, func
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.engine import Engine
 
-from config import DT_FORMAT, SQL, DATA_DIR, CACHE_DIR, CSV_OPTS
+from config import DT_FORMAT, SQL, DATA_DIR, CACHE_DIR, CSV_OPTS, DB_CONN
 import model
 from model import (
     Account, Market, Asset, Event, Order, Trade, TradeSide, Ledger
@@ -18,6 +19,7 @@ from model import (
 from ohlc import OHLC
 from event import EventRunner
 
+from easy_profile import SessionProfiler
 
 #from sqlalchemy.schema import CreateTable
 #print(CreateTable(TradeSide.__table__))
@@ -27,17 +29,78 @@ from event import EventRunner
 #logging.basicConfig()
 #logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
-DAEMON_WAIT_SECS = 1.0
+
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+import time
+import logging
+
+logging.basicConfig()
+logger = logging.getLogger("myapp.sqltime")
+logger.setLevel(logging.DEBUG)
+
+
+
+
+"""
+SQLPROF = {}
+@event.listens_for(Engine, "before_cursor_execute")
+def before_cursor_execute(conn, cursor, statement,
+                        parameters, context, executemany):
+    conn.info.setdefault('query_start_time', []).append(time.time())
+    logger.debug("Start Query: %s", statement)
+
+@event.listens_for(Engine, "after_cursor_execute")
+def after_cursor_execute(conn, cursor, statement,
+                        parameters, context, executemany):
+    total = time.time() - conn.info['query_start_time'].pop(-1)
+    logger.debug("Query Complete!")
+    logger.debug("Total Time: %f", total)
+
+    if statement not in SQLPROF:
+        SQLPROF[statement] = {
+            'cnt': 1,
+            'time': 0
+        }
+
+    SQLPROF[statement]['cnt'] += 1
+    SQLPROF[statement]['time'] += total
+"""
+
+
+DAEMON_WAIT_SECS = .2
 
 ENTITY = model.tables()
 
-IMPORT_EXPORT_ENTITIES = ('asset','market','account','fee_schedule')
+IMPORT_EXPORT_ENTITIES = ('account','fee_schedule','asset','market')
+
+from sqlalchemy import event
+
+"""
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.close()
+"""
 
 class Main():
     def __init__(self):
-        self.engine = create_engine('sqlite:///mockex.db')
+        #self.engine = create_engine('sqlite:///mockex.db',
+        #    connect_args={'timeout': 15})
+        self.engine = create_engine(DB_CONN)
+
         db = self.session = Session(self.engine)
 
+
+        """
+        c = self.engine.connect()
+        print('c:',c)
+        r = c.execute("PRAGMA journal_mode")
+        print('r:',r)
+        print(r.fetchone())
+        return
+        """
         markets = [m.code for m in db.query(Market).all()] + ['all']
 
         parser = argparse.ArgumentParser(description='Mock Exchange')
@@ -181,17 +244,42 @@ class Main():
                 reader = csv.DictReader(csvfile, **CSV_OPTS)
 
                 # Clean table
-                deleted = self.session.query(Entity).delete()
-                self.session.commit()
+                #deleted = self.session.query(Entity).delete()
+                #self.session.commit()
 
                 cnt = 0
                 for row in reader:
-                    self.session.add(Entity(**row))
+                    self.session.merge(Entity(**row))
                     cnt += 1
                 self.session.commit()
                 print(cnt, 'rows imported')
 
 
 if __name__ == '__main__':
+    #profiler = SessionProfiler()
+    #profiler.begin()
     Main()
+    """
+    profiler.commit()
+
+    for k in profiler.stats.keys():
+        if k == 'call_stack':
+            continue
+        elif k == 'duplicates':
+            a = profiler.stats[k]
+            for i in sorted(a, key=a.get, reverse=True):
+                print(a[i], ']>', i)
+        else:
+            print(k, ':', profiler.stats[k])
+    """
+
+    """
+    print("%8s %8s %8s %-80.80s" % ('tottime','avgtime','count','statement'))
+    total = 0
+    for s in sorted(SQLPROF, key=lambda x:SQLPROF[x]['time'], reverse=True):
+        avg = SQLPROF[s]['time'] / SQLPROF[s]['cnt']
+        total += SQLPROF[s]['time']
+        print("%8.5f %8.5f %8d %-120.120s" % (SQLPROF[s]['time'], avg, SQLPROF[s]['cnt'], s))
+    print('%8.5f tottime TOTAL' % total)
+    """
 
