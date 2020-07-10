@@ -25,7 +25,7 @@ reserve AS (
         ON o.market_id = m.id
         AND o.status in ('partial','open')
     WHERE
-        o.account_id = :account_id
+        o.account_id = %(account_id)s
     GROUP BY
         account_id,
         asset_id
@@ -37,16 +37,16 @@ SELECT
     a.name,
     a.icon,
     a.scale,
-    COALESCE(SUM(l.amount),0) AS balance,
-    COALESCE(r.amount,0) AS reserve,
-    COALESCE(SUM(l.amount),0) - COALESCE(r.amount,0) AS available,
-    COALESCE(value.price,0) AS last_price,
-    COALESCE(SUM(l.amount) * value.price,0) AS usd_value,
+    COALESCE(SUM(l.amount),0)::text AS balance,
+    COALESCE(MAX(r.amount),0)::text AS reserve,
+    (COALESCE(SUM(l.amount),0) - COALESCE(MAX(r.amount),0))::text AS available,
+    COALESCE(MAX(value.price),0)::text AS last_price,
+    COALESCE(SUM(l.amount) * MAX(value.price),0)::text AS usd_value,
     MIN(l.created) AS opening,
     MAX(l.created) AS ending
 FROM asset AS a
 LEFT JOIN ledger AS l
-    ON a.id = l.asset_id AND l.account_id = :account_id
+    ON a.id = l.asset_id AND l.account_id = %(account_id)s
 LEFT JOIN value
     ON value.asset1 = a.id AND value.asset2 = 1 -- USD Asset
 LEFT JOIN reserve AS r
