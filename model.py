@@ -122,6 +122,11 @@ class FeeSchedule(Base):
     taker = Column(Integer, nullable=False)
 
 
+event_method = Enum(
+    'place-order','cancel-order', 'deposit', 'withdraw',
+     name='event_method'
+)
+
 class Event(Base):
     __tablename__ = 'event'
 
@@ -129,13 +134,19 @@ class Event(Base):
     uuid = Column(String(22), default=shortuuid.uuid,
         nullable=False, unique=True, index=True)
 
+    """
     method = Column(Enum(
         'place-order','cancel-order',
         'deposit', 'withdraw',
         name='event_method'
     ), nullable=False)
+    """
+    method = Column(event_method, nullable=False)
     body = Column(Text()) # json payload
     status = Column(Enum('new','done', name='event_status'), default='new')
+
+    # milliseconds
+    runtime = Column(Integer, default=0)
 
     account_id = Column(Integer, ForeignKey('account.id'), nullable=True)
     account = relationship("Account")
@@ -170,6 +181,8 @@ class Order(Base): # Append only, except balance & status
     status = Column(Enum('open','partial','closed','canceled', name='order_status'), default='open')
     # open, partial, closed, canceled
     # open, partial orders should be deducted from account balance. It is reserved
+    trade_sides = relationship("TradeSide", backref="order", cascade="delete")
+
     created = Column(DateTime, default=utcnow)
     modified = Column(DateTime, onupdate=utcnow)
 
@@ -204,6 +217,9 @@ class Trade(Base): # Append only
     market_id = Column(Integer, ForeignKey('market.id'), nullable=False)
     market = relationship("Market")
 
+    trade_sides = relationship("TradeSide", backref="trade", cascade="delete")
+
+
     price = MoneyColumn.copy()
     amount = MoneyColumn.copy()
 
@@ -223,11 +239,10 @@ class TradeSide(Base): # Append only
     type = Column(Enum('maker','taker', name='trade_type'), nullable=False)
 
     trade_uuid = Column(String(22), ForeignKey('trade.uuid'), nullable=False)
-    trade = relationship("Trade")
+    order_uuid = Column(String(22), ForeignKey('order.uuid'), nullable=True)
+
     account_id = Column(Integer, ForeignKey('account.id'), nullable=False)
     account = relationship("Account")
-    order_uuid = Column(String(22), ForeignKey('order.uuid'), nullable=True)
-    order = relationship("Order")
 
     fee_rate = MoneyColumn.copy()
     amount = MoneyColumn.copy()
