@@ -23,7 +23,7 @@ from config import SQL, CACHE_DIR, DT_FORMAT
 from model import (Account, Market, Asset, Event, Order, Trade, Ledger)
 
 
-INTERVALS = ('5m','15m','1h','6h','1d')
+INTERVALS = ('1m','5m','15m','1h','6h','1d')
 
 ATTR_WORD = {
     'M': 'months',
@@ -73,7 +73,7 @@ INTERVAL_FORMAT = {
     '1h'  : '%Y-%m-%d %H:00:00',
     '15m' : '%Y-%m-%d %H:%M:00', # **
     '5m'  : '%Y-%m-%d %H:%M:00', # **
-    #'1m'  : '%Y-%m-%d %H:%M:00',
+    '1m'  : '%Y-%m-%d %H:%M:00',
 }
 
 TRUNCATE = {
@@ -81,7 +81,8 @@ TRUNCATE = {
     '6h': '6_hour',
     '1h': 'hour',
     '15m': '15_minute',
-    '5m': '5_minute'
+    '5m': '5_minute',
+    '1m': 'minute'
 }
 
 PG_TRUNCATE = {
@@ -89,7 +90,8 @@ PG_TRUNCATE = {
     '6h'  : '6 hour',
     '1h'  : '1 hour',
     '15m' : '15 minute',
-    '5m'  : '5 minute'
+    '5m'  : '5 minute',
+    '1m'  : '1 minute'
 }
 
 JSONL_KEYS = ('dt', 'time', 'open', 'high', 'low', 'close', 'volume', 'value')
@@ -329,6 +331,10 @@ class OHLC:
                         data[x] = float(u[x])
                 data['value'] = data['volume']
 
+                if data.get('open') == 0:
+                    for k in ('open','high','low','close','value','volume'):
+                        data.pop(k)
+
                 out[i][rel_path].append(json.dumps(data))
                 out_rows[i][rel_path] += 1
                 self.log(i, rel_path, dict(data))
@@ -394,19 +400,29 @@ class OHLC:
         last24 = list(map(lambda x: json.loads(x), reversed(last24)))
 
         if len(last24):
-            groups = [(i['low'], i['high'], i['volume']) for i in last24]
-            (lows, highs, volumes) = list(zip(*groups))
-            first = last24[0]
-            last = last24[-1]
+            groups = [(i.get('open'), i.get('low'), i.get('high'), i.get('close'), i.get('volume')) for i in last24]
+            (opens, lows, highs, closes, volumes) = list(zip(*groups))
+            first = None
+            last = None
+            # Get the first existing open
+            for x in opens:
+                first = x
+                if first:
+                    break
+            # Get the last existing close
+            for x in closes:
+                last = x
+                if last:
+                    break
             data = {
                 'market_id' : m.id,
                 'code'      : m.code,
                 'name'      : m.name,
-                'open'      : first['open'],
-                'high'      : max(highs),
-                'low'       : min(lows),
-                'close'     : last['close'],
-                'volume'    : sum(volumes),
+                'open'      : first,
+                'high'      : max(i for i in highs if i is not None),
+                'low'       : min(i for i in lows if i is not None),
+                'close'     : last,
+                'volume'    : sum(i for i in volumes if i is not None),
                 'change'    : 0,
                 'avg_price' : 0
             }
@@ -678,22 +694,25 @@ class OHLC:
             d = dict(row)
             # chart library doesn't support empty fields yet
             # https://github.com/tradingview/lightweight-charts/pull/294
-            #if d.get('open') == 0:
-            #    for k in ('open','high','low','close','value','volume'):
-            #        d.pop(k)
+            if d.get('open') == 0:
+                for k in ('open','high','low','close','value','volume'):
+                    d.pop(k)
+            """
             if d['close'] == 0:
                 for k in ('open','high','low','close'):
                     d[k] = last_price
 
             last_price = d['close']
+            """
             for k in d.keys():
                 if isinstance(d[k], Decimal):
                     d[k] = float(d[k])
             result.append(d)
         
         # Ugly hack to account for issue 294 above
+        """
         result.reverse()
-        last_price = 0
+        last_price = 0 #result[0]['open']
         for i, d in enumerate(result):
             if d['open'] == 0:
                 for k in ('open','high','low','close'):
@@ -702,6 +721,7 @@ class OHLC:
             last_price = d['open']
 
         result.reverse()
+        """
 
         return result
 
