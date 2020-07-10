@@ -36,7 +36,7 @@ ohlc AS (
 )
 
 SELECT
-    to_char(period, 'YYYY-MM-DD') || 'T' || to_char(period,'HH:MI:SSZ') as dt,
+    to_char(period, 'YYYY-MM-DD') || 'T' || to_char(period,'HH24:MI:SSZ') as dt,
     extract(epoch from period)::numeric as time,
     COALESCE(ohlc.open,0)::numeric as open,
     COALESCE(ohlc.high,0)::numeric as high,
