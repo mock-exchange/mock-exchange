@@ -14,6 +14,7 @@ from itertools import groupby
 import glob
 import dateutil.parser
 from collections import OrderedDict
+from decimal import Decimal
 
 from sqlalchemy import create_engine, and_, or_, func
 from sqlalchemy.orm import Session, joinedload
@@ -572,10 +573,13 @@ class OHLC:
         if (not start or not end):
             (start, end) = self.get_date_range(interval)
 
-        #sql = SQL['ohlc_sqlite']
-        sql = SQL['ohlc']
+        sql = {}
+        sqlparts = {}
 
-        dt_func_sqlite = {
+        # sqlite dialect
+        sql['sqlite'] = SQL['ohlc_sqlite']
+
+        dt_func = {
             '1m': """
                 CAST(strftime('%Y-%m-%d %H:%M', {value}) AS TEXT) || ':00'
             """,
@@ -601,6 +605,21 @@ class OHLC:
                 date({value}) || ' 00:00:00'
             """
         }
+
+        (num, attr) = INTERVAL_PARTS[interval]
+        ATTR_WORD[attr]
+        sqlparts['sqlite'] = {
+            'start': dt_func[interval].format(value="datetime('"+str(start)+"')"),
+            'end': dt_func[interval].format(value="datetime('"+str(end)+"')"),
+            #'start': "datetime('{}')".format(start),
+            #'end': "datetime('{}')".format(end),
+            'step': "+{} {}".format(num, ATTR_WORD[attr]),
+            'interval': dt_func[interval].format(value='created')
+        }
+
+
+        # postgres dialect
+        sql['postgresql'] = SQL['ohlc']
 
         dt_func = {
             '1m': """
@@ -632,40 +651,20 @@ class OHLC:
 
             """
         }
-        """
-to_timestamp('2020-07-09 17:21:55', 'YYYY-MM-DD HH24:MI:SS')::timestamp without time zone;
-
-select generate_series(timestamp '2000-01-01 00:00', timestamp '2000-01-02 00:00', interval '5 min')
-
-        """
-
-        (num, attr) = INTERVAL_PARTS[interval]
-        ATTR_WORD[attr]
 
         trunc_interval = PG_TRUNCATE[interval]
-        sqlparts = {
+        sqlparts['postgresql'] = {
             'start': truncate(start, TRUNCATE[interval]).strftime(DT_FORMAT),
             'end': truncate(end, TRUNCATE[interval]).strftime(DT_FORMAT),
             'interval': trunc_interval,
             'convert': dt_func[interval].format(value="created")
         }
 
-        sqlparts_sqlite = {
-            'start': dt_func[interval].format(value="datetime('"+str(start)+"')"),
-            'end': dt_func[interval].format(value="datetime('"+str(end)+"')"),
-            #'start': "datetime('{}')".format(start),
-            #'end': "datetime('{}')".format(end),
-            'step': "+{} {}".format(num, ATTR_WORD[attr]),
-            'interval': dt_func[interval].format(value='created')
-        }
-        sql = sql.format(**sqlparts)
 
+        dialect = self.db.bind.dialect.name
 
+        sql = sql[dialect].format(**sqlparts[dialect])
         conn = self.db.connection()
-        #sql = re.sub('\?', str(market_id),sql)
-        #print('-' * 75)
-        #print(sql)
-        #print('-' * 75)
         q = conn.execute(sql, (market_id,))
 
         result = []
@@ -683,6 +682,9 @@ select generate_series(timestamp '2000-01-01 00:00', timestamp '2000-01-02 00:00
                     d[k] = last_price
 
             last_price = d['close']
+            for k in d.keys():
+                if isinstance(d[k], Decimal):
+                    d[k] = float(d[k])
             result.append(d)
         
         # Ugly hack to account for issue 294 above

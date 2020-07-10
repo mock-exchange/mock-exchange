@@ -37,13 +37,13 @@ ohlc AS (
 
 SELECT
     to_char(period, 'YYYY-MM-DD') || 'T' || to_char(period,'HH:MI:SSZ') as dt,
-    extract(epoch from period)::text as time,
-    COALESCE(ohlc.open,0)::text as open,
-    COALESCE(ohlc.high,0)::text as high,
-    COALESCE(ohlc.low,0)::text as low,
-    COALESCE(ohlc.close,0)::text as close,
-    COALESCE(ohlc.volume,0)::text as volume,
-    COALESCE(ohlc.volume,0)::text as value
+    extract(epoch from period)::numeric as time,
+    COALESCE(ohlc.open,0)::numeric as open,
+    COALESCE(ohlc.high,0)::numeric as high,
+    COALESCE(ohlc.low,0)::numeric as low,
+    COALESCE(ohlc.close,0)::numeric as close,
+    COALESCE(ohlc.volume,0)::numeric as volume,
+    COALESCE(ohlc.volume,0)::numeric as value
 FROM dtrange
 LEFT JOIN ohlc
     ON dtrange.period = ohlc.time
