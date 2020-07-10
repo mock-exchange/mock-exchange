@@ -224,6 +224,7 @@ class OHLC:
             this_period = json.loads(last_lines[i][-1])
             this_dt = dateutil.parser.parse(this_period['dt'], ignoretz=True)
             compare_dt = truncate(smallest_dt, TRUNCATE[i])
+            #print('%-4s compare %s to smallest %s' % (i, this_dt, compare_dt))
             if compare_dt != this_dt:
                 raise ValueError(
                     "Last row {} doesn't match in {} for {}".format(
@@ -306,6 +307,8 @@ class OHLC:
                     out[i][rel_path] = last_lines[i]
 
                     period = u['dt'].strftime(DT_FORMAT)
+                    #print('> %-4s compare %s to last row %s' % (i, period, last_row[i]['dt']))
+
                     if period != last_row[i]['dt']:
                         raise ValueError(
                             "Last row {} doesn't match in {} for {}".format(
@@ -482,7 +485,6 @@ class OHLC:
 
                 end_get = end if sr[1] > end else sr[1]
                 r = self.get(m.id, interval, sr[0], end_get)
-
                 lines = []
                 for row in r:
                     lines.append(json.dumps(row))
@@ -654,8 +656,10 @@ class OHLC:
 
         trunc_interval = PG_TRUNCATE[interval]
         sqlparts['postgresql'] = {
-            'start': truncate(start, TRUNCATE[interval]).strftime(DT_FORMAT),
-            'end': truncate(end, TRUNCATE[interval]).strftime(DT_FORMAT),
+            'start': start.strftime(DT_FORMAT),
+            'end': end.strftime(DT_FORMAT),
+            #'start': truncate(start, TRUNCATE[interval]).strftime(DT_FORMAT),
+            #'end': truncate(end, TRUNCATE[interval]).strftime(DT_FORMAT),
             'interval': trunc_interval,
             'convert': dt_func[interval].format(value="created")
         }
