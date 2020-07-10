@@ -410,7 +410,7 @@ class OHLC:
                 if first:
                     break
             # Get the last existing close
-            for x in closes:
+            for x in reversed(closes):
                 last = x
                 if last:
                     break
