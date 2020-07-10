@@ -16,6 +16,8 @@ SQL = {}
 
 ALL_DIRS = (DATA_DIR, CACHE_DIR, SQL_DIR)
 
+DB_CONN = 'postgres:///mockex'
+RQ_CONN = 'redis://'
 
 # Init dirs
 for d in ALL_DIRS:
