@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, joinedload, aliased
 from flask import Flask, Blueprint, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 
-from marshmallow import Schema, fields, ValidationError, pre_load
+from marshmallow import Schema, fields, ValidationError, pre_load, validate
 from marshmallow import post_dump
 
 import redis
@@ -65,7 +65,8 @@ class EventSchema(Schema):
     status = fields.Str(dump_only=True)
     created = fields.DateTime(dump_only=True, format=DT_FORMAT)
 
-    method = fields.Str(required=True)
+    method = fields.Str(required=True,
+        validate=validate.OneOf(model.event_method.enums))
     account_id = fields.Int(required=True)
     body = fields.Str(required=True)
 
@@ -363,8 +364,6 @@ def get_entity_list(entity):
 
     return jsonify(result)
 
-
-
 @app.route("/api/event/<string:market>", methods=["POST"])
 def create_event(market):
     m = get_market(market)
@@ -402,8 +401,7 @@ def create_event(market):
         db.session.commit()
 
         q = rq.Queue(m.code, connection=conn)
-        job = q.enqueue('tasks.event', data, job_id=data['uuid'])
-        task_id = job.get_id()
+        job = q.enqueue(data['method'], data, job_id=data['uuid'])
 
     result = Schema().dump(e)
     del result['id']
