@@ -161,6 +161,17 @@ if __name__ == '__main__':
         filtered = []
         print('\nORDER:',o)
 
+        """
+        1. move cursor to first order in price stack
+        2. iter thru until balance cleared:
+            a. create trades/ledgers
+            b. update order balances & status
+        3. apply db updates:
+            - order updates + del from lmdb
+            - create new order + add to lmdb
+            - delete event from queue(or status)
+        """
+
         with env.begin(db=dbs[other_side]) as txn:
             cursor = txn.cursor()
             it = cursor.iterprev if other_side == 'buy' else cursor.iternext
