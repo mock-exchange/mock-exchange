@@ -7,7 +7,7 @@ import random
 import threading
 
 import dirqueue
-from dirqueue import QueueDir, Reader, Writer, TS, foobar
+from dirqueue import DirQueue, Reader, Writer, TS
 
 PROCESSES = 4
 CYCLES = 2000
@@ -24,10 +24,11 @@ def worker(num, q):
 
     key = num * 1000000
     with open(BASE_DIR + '/worker_' + str(num), 'w') as f:
+        pid = os.getpid()
+        ident = threading.get_ident()
+        print('worker %s queue: pid=%d, thread:%s' % (str(num), pid, ident))
+
         while True:
-            pid = os.getpid()
-            ident = threading.get_ident()
-            print('worker %s queue: pid=%d, thread:%s' % (str(num), pid, ident))
 
             batch = random.randrange(20,50)
             #batch = 10
@@ -55,7 +56,7 @@ def worker(num, q):
             secs = 1
             print("worker %d sleeping %f seconds.." % (num, secs))
             f.write("puts this second: %d\n" % batch)
-            f.write(TS.stats())
+            f.write(TS.text())
             f.flush()
             time.sleep(secs)
             #break
@@ -76,7 +77,6 @@ def consumer():
         print('queue size:',q.get_size())
 
         TS.print_stats()
-        foobar(q)
         secs = 1
         print("consumer Sleeping %f seconds.." % (secs,))
         time.sleep(secs)
@@ -84,7 +84,7 @@ def consumer():
 
 
 if __name__ == '__main__':
-    q = QueueDir('queuedir').clear()
+    q = DirQueue('queuedir').clear()
 
     #proc = Process
     proc = threading.Thread
@@ -100,6 +100,5 @@ if __name__ == '__main__':
         p = proc(target=worker, args=(i,wq))
         jobs.append(p)
         p.start()
-
 
 
