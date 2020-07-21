@@ -264,6 +264,19 @@ def get_balance():
 
     return jsonify(result)
 
+def get_gini(data):
+    N = len(data)
+
+    prod = 0
+    total = 0
+
+    for i, amt in enumerate(data):
+        prod = prod + ((i+1)*amt)
+        total = total + amt
+
+    u = total/N
+    return (N+1.0)/(N-1.0) - (prod/(N*(N-1.0)*u))*2.0
+
 # Wealth distribution
 @app.route('/api/wealth', methods=["GET"])
 def get_wealth():
@@ -274,7 +287,12 @@ def get_wealth():
     for row in rs:
         result.append(dict(row))
 
-    return jsonify(result)
+    gini = get_gini([i['amount'] for i in result])
+
+    return jsonify({
+        'gini': gini,
+        'results': result
+    })
 
 
 # Get one
@@ -391,6 +409,9 @@ def create_event(market):
         return err.messages, 422
 
     # Account balance validation
+    # get balance from ledger
+    # get reserve
+    # balance - reserve
 
     # Add to queue
     #with rq.Connection(conn):
@@ -400,8 +421,8 @@ def create_event(market):
         db.session.add(e)
         db.session.commit()
 
-        q = rq.Queue(m.code, connection=conn)
-        job = q.enqueue(data['method'], data, job_id=data['uuid'])
+        #q = rq.Queue(m.code, connection=conn)
+        #job = q.enqueue(data['method'], data, job_id=data['uuid'])
 
     result = Schema().dump(e)
     del result['id']
