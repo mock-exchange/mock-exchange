@@ -16,20 +16,24 @@ SOFT_LIMIT = 2000 # Messages are rejected above this limit
 
 
 class Stats:
-    def __init__(self):
+    def __init__(self, types = None):
         self.last_time = time.time()
-        self.types = ('put','get','get_queue','done','get_size','reject')
+        self.types = types
+        print(types)
+        if not types:
+            print('NOT TYPES')
+            self.types = ('put','get','get_queue','done','get_size','reject')
         for i in self.types:
             for j in ('cnt','ttime','avg'):
                 setattr(self, i+'_'+ j, 0)
                 if j == 'avg':
                     setattr(self, i+'_'+ j, None)
 
-    def set(self, i, elapsed=0):
+    def set(self, i, elapsed=0, count=1):
         cnt = i+'_cnt'
         avg = i+'_avg'
         tot = i+'_ttime'
-        setattr(self, cnt, getattr(self,cnt) + 1)
+        setattr(self, cnt, getattr(self,cnt) + count)
         setattr(self, tot, getattr(self,tot) + elapsed)
 
         if getattr(self, avg) != None:
@@ -40,15 +44,15 @@ class Stats:
     def text(self):
         out = []
         out.append("stats:")
-        for t in TS.types:
-            total = getattr(TS, t+'_ttime')
-            avg = getattr(TS, t+'_avg') or 0
-            cnt = getattr(TS, t+'_cnt')
+        for t in self.types:
+            total = getattr(self, t+'_ttime')
+            avg = getattr(self, t+'_avg') or 0
+            cnt = getattr(self, t+'_cnt')
             ops = 0
             if total > 0:
                 ops = cnt / total
-            out.append("%-10s cnt:%8d avg:%8.4fs tot:%8.4fs ops:%8d /s" % (
-                t, cnt, avg, total, ops
+            out.append("%-10s cnt:%8d avg:%8d ms, tot:%8d ms, ops:%8d /s" % (
+                t, cnt, avg * 1000, total * 1000, ops
             ))
 
 
