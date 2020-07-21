@@ -534,6 +534,8 @@ class OHLC:
         if m:
             data = {}
             to_path = CACHE_DIR / m.code / 'last24.json'
+            if not os.path.exists(to_path):
+                return {}
             with open(to_path) as f:
                 data = json.loads(f.read())
             return data
