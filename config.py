@@ -19,6 +19,9 @@ ALL_DIRS = (DATA_DIR, CACHE_DIR, SQL_DIR)
 DB_CONN = 'postgres:///mockex'
 RQ_CONN = 'redis://'
 
+LOB_LMDB_NAME = 'orderbook'
+LOB_LMDB_SIZE = (1024**2) * 400 # 400MB
+
 # Init dirs
 for d in ALL_DIRS:
     if not os.path.exists(d):
