@@ -4,8 +4,8 @@ from collections import deque
 from io import StringIO
 import lmdb
 
-from .ordertree import OrderTree
-from .ordertree import Quote
+from .ordertree import OrderList
+from .model import Quote
 
 import stats
 
@@ -33,8 +33,8 @@ class OrderBook(object):
         self.asks_db = self.env.open_db(b'asks', dupsort=True)
         self.ids_db = self.env.open_db(b'ids')
 
-        self.bids = OrderTree(self.env, self.bids_db, self.ids_db, 'bid')
-        self.asks = OrderTree(self.env, self.asks_db, self.ids_db, 'ask')
+        self.bids = OrderList(self.env, self.bids_db, self.ids_db, 'bid')
+        self.asks = OrderList(self.env, self.asks_db, self.ids_db, 'ask')
 
     def clipPrice(self, price):
         """ Clips the price according to the ticksize """

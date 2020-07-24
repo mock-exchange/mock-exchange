@@ -5,7 +5,7 @@ from lob.model import Quote, Order, Account, decode, encode
 TS = stats.Stats()
 
 
-class OrderTree(object):
+class OrderList(object):
     def __init__(self, env, db, idb, side):
         self.priceTree = {}
         self.priceMap = {}  # Map from price -> orderList object
