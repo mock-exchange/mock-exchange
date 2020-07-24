@@ -7,7 +7,7 @@ from sqlalchemy import and_, or_, func
 from sqlalchemy.orm import joinedload
 import time
 
-from PyLOB.orderbook import OrderBook, Quote
+from lob import OrderBook, Quote
 
 import config as cfg
 from model import Market, Asset, FeeSchedule, Event
