@@ -19,20 +19,49 @@ def unpack(f, s=8): return [f[i*s:(i*s)+s] for i in range(int(len(f) / s))]
 
 fsizes = (8,4,4,4)
 
-class Order(object):
-    def __init__(self, quote, orderList):
-        self.timestamp = int(quote['timestamp'])
-        self.qty = int(quote['qty'])
-        self.price = quote['price']
-        self.idNum = quote['idNum']
-        self.tid = quote['tid']
-        #self.nextOrder = None
-        #self.prevOrder = None
-        #self.orderList = orderList
+class Quote(object):
+    __slots__ = ['id', 'type', 'side', 'price', 'qty', 'account_id']
+
+    def __init__(self, data):
+        for k in __class__.__slots__:
+            setattr(self, k, data[k])
 
     def __str__(self):
-        #return "%s\t@\t%.4f\tt=%d" % (self.qty, self.price, self.timestamp)
-        return "%-10d @ %10.2f  tid:%-6d" % (self.qty, self.price, self.tid)
+        pairs = [k + '=' + str(getattr(self, k)) for k in __class__.__slots__]
+        return 'Quote(%s)' % ', '.join(pairs)
+
+
+class Order(object):
+    __slots__ = ['id', 'price', 'qty'] # 'account_id']
+
+    def __init__(self, data):
+        for k in __class__.__slots__:
+            if type(data) == dict:
+                setattr(self, k, data[k])
+            elif type(data) == Quote:
+                setattr(self, k, getattr(data, k))
+
+    def list_kv(self):
+        pass
+        # return key, value
+
+    def idx_kv(self):
+        pass
+        # return key(self.id), value(qty + account_id)
+
+    def __str__(self):
+        #return "%-10d @ %10.2f  tid:%-6d" % (self.qty, self.price, self.tid)
+        pairs = [k + '=' + str(getattr(self, k)) for k in __class__.__slots__]
+        return 'Order(%s)' % ', '.join(pairs)
+
+
+class Account(object):
+    __slots__ = ['id', 'balance', 'vol30d']
+
+    def __init__(self):
+        self.id = 1
+        self.balance = 0
+        self.vol30d = 0
 
 
 class OrderTree(object):
@@ -134,26 +163,19 @@ class OrderTree(object):
         cur.set_key(self.__prices[0])
 
         for key, value in cur.iternext_dup(True, True):
-            tid = decode(value)
-            price = decode(key)
-            qqq = txn.get(value, db=self.idb)
-            qty = decode(qqq)
-            #print(">> %-10d @ %10.2f  tid:%-6d" % (qty, price, tid))
+            qty = txn.get(value, db=self.idb)
 
-            quote = {
-                'timestamp': 1,
-                'qty': qty,
-                'price': price,
-                'tid': tid,
-                'idNum': tid
-            }
-            o = Order(quote, None)
+            o = Order({
+                'id'    : decode(value),
+                'qty'   : decode(qty),
+                'price' : decode(key),
+            })
             self._shits.append(o)
 
     @TS.timeit
     def updateQty(self, order, qty):
         txn = self.env.begin(write=True)
-        txn.put(encode(order.tid), encode(order.qty), db=self.idb)
+        txn.put(encode(order.id), encode(order.qty), db=self.idb)
         txn.commit()
 
     def __len__(self):
@@ -195,14 +217,14 @@ class OrderTree(object):
         """
         self.nOrders += 1
 
-        order = Order(quote, None)
+        order = Order(quote)
         #self.priceMap[order.price].appendOrder(order)
         #self.orderMap[order.idNum] = order
         self.volume += order.qty
 
         txn = self.env.begin(write=True)
-        txn.put(encode(order.tid), encode(order.qty), db=self.idb)
-        txn.put(encode(order.price), encode(order.tid), db=self.db)
+        txn.put(encode(order.id), encode(order.qty), db=self.idb)
+        txn.put(encode(order.price), encode(order.id), db=self.db)
         txn.commit()
 
     def updateOrder(self, orderUpdate):
@@ -224,8 +246,8 @@ class OrderTree(object):
     def removeOrder(self, order):
         self.nOrders -= 1
         txn = self.env.begin(write=True)
-        txn.delete(encode(order.price), encode(order.tid), db=self.db)
-        txn.delete(encode(order.tid), db=self.idb)
+        txn.delete(encode(order.price), encode(order.id), db=self.db)
+        txn.delete(encode(order.id), db=self.idb)
         txn.commit()
 
     @TS.timeit

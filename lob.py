@@ -7,7 +7,7 @@ from sqlalchemy import and_, or_, func
 from sqlalchemy.orm import joinedload
 import time
 
-from PyLOB.orderbook import OrderBook
+from PyLOB.orderbook import OrderBook, Quote
 
 import config as cfg
 from model import Market, Asset, FeeSchedule, Event
@@ -87,13 +87,14 @@ class OrderBookRunner():
             o = namedtuple('eventBody', d.keys())(*d.values())
 
             print(e.id, o)
-            quote = {
-                'type': o.type,
-                'side': o.side,
-                'amount': o.amount,
-                'price': o.price,
-                'id': e.id    # need a seq number, use this for now
-            }
+            quote = Quote({
+                'id'         : e.id,
+                'type'       : o.type,
+                'side'       : o.side,
+                'qty'        : int(o.amount),
+                'price'      : int(o.price),
+                'account_id' : e.account_id
+            })
 
             self.run_one(quote)
 
@@ -105,19 +106,9 @@ class OrderBookRunner():
 
         print('orders:%d trades:%d writes:%d' % (
             self.total_orders,self.total_trades,self.total_writes))
-        
 
     def run_one(self, quote):
         start = time.time()
-        quote = {
-            'type'  : quote['type'],
-            'side'  : quote['side'],
-            'qty'   : int(quote['amount']),
-            'price' : int(quote['price']),
-            'tid'   : quote['id'],
-            'idNum' : quote['id']
-        }
-        #print('run_one():',order)
 
         trades, orderInBook = self.lob.processOrder(quote)
         #OHLC(self.session).update_cache(['shtusd'])

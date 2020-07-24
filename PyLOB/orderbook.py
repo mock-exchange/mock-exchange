@@ -5,6 +5,7 @@ from io import StringIO
 import lmdb
 
 from .ordertree import OrderTree
+from .ordertree import Quote
 
 import stats
 
@@ -51,20 +52,60 @@ class OrderBook(object):
         print('  write book cache')
         print('  write ohlcv')
 
+    def getSide(self, side, other=False):
+        if other: side = 'ask' if side == 'bid' else 'bid'
+        obj = self.bids if side == 'bid' else self.asks
+        return side, obj
+
     @TS.timeit
     def processOrder(self, quote):
-        quote['timestamp'] = 0
-        orderType = quote['type']
         orderInBook = None
-        if quote['qty'] <= 0:
-            sys.exit('processLimitOrder() given order of qty <= 0')
-        if orderType=='market':
+        if quote.type == 'market':
             trades = self.processMarketOrder(quote)
-        elif orderType=='limit':
-            quote['price'] = self.clipPrice(quote['price'])
+        elif quote.type == 'limit':
             trades, orderInBook = self.processLimitOrder(quote)
         else:
             sys.exit("processOrder() given neither 'market' nor 'limit'")
+        return trades, orderInBook
+
+    @TS.timeit
+    def processMarketOrder(self, quote):
+        trades = []
+        qtyToTrade = quote.qty
+        if quote.side == 'bid':
+            while qtyToTrade > 0 and self.asks:
+                qtyToTrade, newTrades = self.processList(quote, qtyToTrade)
+                trades += newTrades
+        elif quote.side == 'ask':
+            while qtyToTrade > 0 and self.bids:
+                qtyToTrade, newTrades = self.processList(quote, qtyToTrade)
+                trades += newTrades
+        else:
+            sys.exit('processMarketOrder() received neither "bid" nor "ask"')
+        return trades
+
+    @TS.timeit
+    def processLimitOrder(self, quote):
+        orderInBook = None
+        trades = []
+
+        qtyToTrade = quote.qty
+        price = quote.price
+        otherSide, orderList = self.getSide(quote.side, True)
+        orderList.initPrices()
+        while (orderList and
+               ((otherSide == 'ask' and price >= orderList.firstPrice()) or
+               (otherSide == 'bid' and price <= orderList.firstPrice())) and
+               qtyToTrade > 0):
+            qtyToTrade, newTrades = self.processList(otherSide,
+                quote, qtyToTrade)
+            trades += newTrades
+        # If volume remains, add to book
+        if qtyToTrade > 0:
+            quote.qty = qtyToTrade
+            orderList.insertOrder(quote)
+            orderInBook = quote
+
         return trades, orderInBook
 
     @TS.timeit
@@ -85,7 +126,7 @@ class OrderBook(object):
             cnt += 1
             print(cnt, order)
             tradedPrice = order.price
-            counterparty = order.tid
+            counterparty = order.id
             if qtyToTrade < order.qty:
                 tradedQty = qtyToTrade
                 # Amend book order
@@ -105,74 +146,27 @@ class OrderBook(object):
             if self.verbose:
                 print('>>> TRADE \nt=%d $%f n=%d p1=%d p2=%d' % (
                     self.time, tradedPrice, tradedQty,
-                    counterparty, quote['tid']
+                    counterparty, quote.id
                 ))
 
             # Trade Transaction
             tx = {
-                'timestamp' : self.time,
+                'timestamp' : self.time, # current time
                 'price'     : tradedPrice,
                 'qty'       : tradedQty
             }
             if side == 'bid':
-                tx['party1'] = [counterparty, 'bid', order.idNum]
-                tx['party2'] = [quote['tid'], 'ask', None]
+                tx['party1'] = [counterparty, 'bid', order.id]
+                tx['party2'] = [quote.id, 'ask', None]
             else:
-                tx['party1'] = [counterparty, 'ask', order.idNum]
-                tx['party2'] = [quote['tid'], 'bid', None]
+                tx['party1'] = [counterparty, 'ask', order.id]
+                tx['party2'] = [quote.id, 'bid', None]
 
             self.tape.append(tx)
             trades.append(tx)
 
         return qtyToTrade, trades
 
-    @TS.timeit
-    def processMarketOrder(self, quote):
-        trades = []
-        qtyToTrade = quote['qty']
-        side = quote['side']
-        if side == 'bid':
-            while qtyToTrade > 0 and self.asks:
-                qtyToTrade, newTrades = self.processList(quote, qtyToTrade)
-                trades += newTrades
-        elif side == 'ask':
-            while qtyToTrade > 0 and self.bids:
-                qtyToTrade, newTrades = self.processList(quote, qtyToTrade)
-                trades += newTrades
-        else:
-            sys.exit('processMarketOrder() received neither "bid" nor "ask"')
-        return trades
-
-    def getSide(self, side, other=False):
-        if other: side = 'ask' if side == 'bid' else 'bid'
-        obj = self.bids if side == 'bid' else self.asks
-        return side, obj
-
-    @TS.timeit
-    def processLimitOrder(self, quote):
-        orderInBook = None
-        trades = []
-        qtyToTrade = quote['qty']
-        side = quote['side']
-        price = quote['price']
-
-        otherSide, orderList = self.getSide(side, True)
-
-        orderList.initPrices()
-        while (orderList and
-               ((otherSide == 'ask' and price >= orderList.firstPrice()) or
-               (otherSide == 'bid' and price <= orderList.firstPrice())) and
-               qtyToTrade > 0):
-            qtyToTrade, newTrades = self.processList(otherSide,
-                quote, qtyToTrade)
-            trades += newTrades
-        # If volume remains, add to book
-        if qtyToTrade > 0:
-            quote['qty'] = qtyToTrade
-            orderList.insertOrder(quote)
-            orderInBook = quote
-
-        return trades, orderInBook
 
     def cancelOrder(self, side, idNum, time = None):
         if time:
