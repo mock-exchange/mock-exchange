@@ -1,66 +1,100 @@
 # LOB Model
 
-def encode(i): return int(i).to_bytes(8, 'big')
-def decode(v): return int.from_bytes(v, 'big')
+def encode(i): return int(i).to_bytes(8, 'big', signed=True)
+def decode(v): return int.from_bytes(v, 'big', signed=True)
 
 # Pack even sized field
 def pack(v): return b''.join(v)
 def unpack(f, s=8): return [f[i*s:(i*s)+s] for i in range(int(len(f) / s))]
 # id,qty,price,account_id
 
-# bids:
-# price, pack(id, qty, account_id)
 
-fsizes = (8,4,4,4)
+class Column(object):
+    __slots__ = ['name', 'type', 'required', 'default']
+
+    def __init__(self, name, t, required=False, default=None):
+        self.name = name
+        self.type = t
+        self.required = required
+        self.default = default
+
+    def __str__(self):
+        return self.name
 
 class Base(object):
-    def __init__(self):
-        pass
+    __slots__ = []
 
-class Quote(object):
-    __slots__ = ['id', 'type', 'side', 'price', 'qty', 'account_id']
+    def __init__(self, data=None, **kwargs):
+        data = kwargs if kwargs else data
+        if not data:
+            raise Exception(type(self).__name__ + ': Missing args.')
+        for c in self.cols:
+            value = data.get(c.name, None)
+            if value == None and c.default != None:
+                value = c.default
+            if value == None and c.required == True:
+                raise Exception(c.name + ' required')
+            elif value != None and type(value) != c.type:
+                raise TypeError(type(self), c.name, c.type)
 
-    def __init__(self, data):
-        for k in __class__.__slots__:
-            setattr(self, k, data[k])
+            setattr(self, c.name, value)
 
-    def __str__(self):
-        pairs = [k + '=' + str(getattr(self, k)) for k in __class__.__slots__]
-        return 'Quote(%s)' % ', '.join(pairs)
-
-
-class Order(object):
-    __slots__ = ['id', 'price', 'qty'] # 'account_id']
-
-    #default = [
-    #    'id:int', 'price:int', 'qty:int'
-    #]
-    def __init__(self, data):
-        for k in __class__.__slots__:
-            if type(data) == dict:
-                setattr(self, k, data[k])
-            elif type(data) == Quote:
-                setattr(self, k, getattr(data, k))
-
-    def list_kv(self):
-        pass
-        # return key, value
-
-    def idx_kv(self):
-        pass
-        # return key(self.id), value(qty + account_id)
+        post_validate = getattr(self, 'post_validate', None)
+        if post_validate:
+            post_validate()
 
     def __str__(self):
-        #return "%-10d @ %10.2f  tid:%-6d" % (self.qty, self.price, self.tid)
-        pairs = [k + '=' + str(getattr(self, k)) for k in __class__.__slots__]
-        return 'Order(%s)' % ', '.join(pairs)
+        name = self.__class__.__name__
+        pairs = [c.name + '=' + str(getattr(self, c.name)) for c in self.cols]
+        return '%s(%s)' % (name, ', '.join(pairs))
 
 
-class Account(object):
-    __slots__ = ['id', 'balance', 'vol30d']
+enum_type = set(('limit','market'))
+enum_side = set(('bid','ask'))
+class Quote(Base):
+    cols = (
+        Column('id',         int, required=True),
+        Column('type',       str, required=True)
+        Column('side',       str, required=True)
+        Column('price',      int, required=False), # Only req for limit
+        Column('qty',        int, required=True),
+        Column('account_id', int, required=False),
+    )
 
-    def __init__(self):
-        self.id = 1
-        self.balance = 0
-        self.vol30d = 0
+    __slots__ = [c.name for c in cols]
+
+    def post_validate(self):
+        if self.type == 'limit' and not self.price:
+            raise Exception('Price missing for limit order')
+
+
+class Order(Base):
+    cols = (
+        Column('id',         int, required=True),
+        Column('price',      int, required=True),
+        Column('qty',        int, required=True),
+        Column('account_id', int, required=False),
+    )
+
+    __slots__ = [c.name for c in cols]
+
+
+class Trade(Base):
+    cols = (
+        Column('time',  int, required=True),
+        Column('price', int, required=True),
+        Column('qty',   int, required=True)
+    )
+
+    __slots__ = [c.name for c in cols]
+
+
+class Account(Base):
+    cols = (
+        Column('id',      int, required=True),
+        Column('balance', int, required=True),
+        Column('vol30d',  int, required=True)
+    )
+
+    __slots__ = [c.name for c in cols]
 
