@@ -54,8 +54,8 @@ enum_side = set(('bid','ask'))
 class Quote(Base):
     cols = (
         Column('id',         int, required=True),
-        Column('type',       str, required=True)
-        Column('side',       str, required=True)
+        Column('type',       str, required=True),
+        Column('side',       str, required=True),
         Column('price',      int, required=False), # Only req for limit
         Column('qty',        int, required=True),
         Column('account_id', int, required=False),
