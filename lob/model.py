@@ -43,6 +43,9 @@ class Base(object):
         if post_validate:
             post_validate()
 
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.cols}
+
     def __str__(self):
         name = self.__class__.__name__
         pairs = [c.name + '=' + str(getattr(self, c.name)) for c in self.cols]
