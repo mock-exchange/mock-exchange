@@ -3,9 +3,10 @@ import math
 from collections import deque
 from io import StringIO
 import lmdb
+import time
 
 from .orderlist import OrderList
-from .model import Quote
+from .model import Quote, Trade
 
 import stats
 
@@ -13,7 +14,7 @@ TS = stats.Stats()
 
 class OrderBook(object):
     @TS.timeit
-    def __init__(self, dbname, dbsize, tick_size = 0.0001):
+    def __init__(self, env, tick_size = 0.0001):
         self.tape = deque(maxlen=None) # Index [0] is most recent trade
         self.lastTick = None
         self.lastTimestamp = 0
@@ -21,20 +22,13 @@ class OrderBook(object):
         self.time = 0
         self.nextQuoteID = 0
 
-        self.dbname = dbname
-        self.dbsize = dbsize
-
         self.verbose = False
 
         # LMDB
-        self.env = lmdb.open(str(self.dbname),
-            map_size=self.dbsize, max_dbs=3)
-        self.bids_db = self.env.open_db(b'bids', dupsort=True)
-        self.asks_db = self.env.open_db(b'asks', dupsort=True)
-        self.ids_db = self.env.open_db(b'ids')
+        self.env = env
 
-        self.bids = OrderList(self.env, self.bids_db, self.ids_db, 'bid')
-        self.asks = OrderList(self.env, self.asks_db, self.ids_db, 'ask')
+        self.bids = OrderList(self.env, 'bid')
+        self.asks = OrderList(self.env, 'ask')
 
     def clipPrice(self, price):
         """ Clips the price according to the ticksize """
@@ -42,6 +36,10 @@ class OrderBook(object):
 
     def updateTime(self):
         self.time+=1
+
+    # Nanoseconds µs
+    def currentTime(self):
+        return int(time.time() * 1000 * 1000)
 
     @TS.timeit
     def commit(self):
@@ -52,6 +50,14 @@ class OrderBook(object):
         print('  write book cache')
         print('  write ohlcv')
 
+        """
+        print('# '*int(78/2))
+        self.bids.stats()
+        print('-'*78)
+        self.asks.stats()
+        print('# '*int(78/2))
+        """
+
     def getSide(self, side, other=False):
         if other: side = 'ask' if side == 'bid' else 'bid'
         obj = self.bids if side == 'bid' else self.asks
@@ -59,6 +65,7 @@ class OrderBook(object):
 
     @TS.timeit
     def processOrder(self, quote):
+        print('process:',quote)
         orderInBook = None
         if quote.type == 'market':
             trades = self.processMarketOrder(quote)
@@ -73,15 +80,11 @@ class OrderBook(object):
         trades = []
         qtyToTrade = quote.qty
         if quote.side == 'bid':
-            while qtyToTrade > 0 and self.asks:
-                qtyToTrade, newTrades = self.processList(quote, qtyToTrade)
-                trades += newTrades
+            olist = self.asks
         elif quote.side == 'ask':
-            while qtyToTrade > 0 and self.bids:
-                qtyToTrade, newTrades = self.processList(quote, qtyToTrade)
-                trades += newTrades
-        else:
-            sys.exit('processMarketOrder() received neither "bid" nor "ask"')
+            olist = self.bids
+        qtyToTrade, newTrades = self.processList(olist, quote, qtyToTrade)
+        trades += newTrades
         return trades
 
     @TS.timeit
@@ -90,76 +93,82 @@ class OrderBook(object):
         trades = []
 
         qtyToTrade = quote.qty
-        price = quote.price
-        otherSide, orderList = self.getSide(quote.side, True)
-        orderList.initPrices()
-        while (orderList and
-               ((otherSide == 'ask' and price >= orderList.firstPrice()) or
-               (otherSide == 'bid' and price <= orderList.firstPrice())) and
-               qtyToTrade > 0):
-            qtyToTrade, newTrades = self.processList(otherSide,
-                quote, qtyToTrade)
-            trades += newTrades
+        # Other side
+        if quote.side == 'bid':
+            olist = self.asks
+        elif quote.side == 'ask':
+            olist = self.bids
+        qtyToTrade, newTrades = self.processList(olist, quote, qtyToTrade)
+        trades += newTrades
+
         # If volume remains, add to book
         if qtyToTrade > 0:
             quote.qty = qtyToTrade
-            orderList.insertOrder(quote)
+            # This side
+            if quote.side == 'bid':
+                tlist = self.bids
+            elif quote.side == 'ask':
+                tlist = self.asks
+            tlist.insertOrder(quote)
             orderInBook = quote
 
         return trades, orderInBook
 
     @TS.timeit
-    def processList(self, side, quote, qtyStillToTrade):
+    def processList(self, olist, quote, qtyAss):
+        qtyToTrade = qtyAss
         trades = []
-        qtyToTrade = qtyStillToTrade
-        if side == 'bid':
-            ii = self.bids
-        elif side == 'ask':
-            ii = self.asks
-        #while len(orderlist) > 0 and qtyToTrade > 0:
-        print('-'*78)
+        print('processList', '-'*50)
         cnt = 0
-        for order in ii:
+        is_limit = quote.type == 'limit'
+        for i, o in enumerate(olist):
+
             if qtyToTrade <= 0:
                 break
+            if is_limit and olist.side == 'ask' and o.price > quote.price:
+                break
+            elif is_limit and olist.side == 'bid' and o.price < quote.price:
+                break
+
+            print('it %4d>' % (i,),o)
 
             cnt += 1
-            print(cnt, order)
-            tradedPrice = order.price
-            counterparty = order.id
-            if qtyToTrade < order.qty:
+            #print(cnt, o)
+            tradedPrice = o.price
+            counterparty = o.id
+            if qtyToTrade < o.qty:
                 tradedQty = qtyToTrade
                 # Amend book order
-                newBookQty = order.qty - qtyToTrade
-                ii.updateQty(order, newBookQty)
+                newBookQty = o.qty - qtyToTrade
+                olist.updateQty(o, newBookQty)
                 qtyToTrade = 0
-            elif qtyToTrade == order.qty:
+            elif qtyToTrade == o.qty:
                 tradedQty = qtyToTrade
-                ii.removeOrder(order)
+                olist.removeOrder(o)
                 qtyToTrade = 0
             else:
-                tradedQty = order.qty
-                ii.removeOrder(order)
+                tradedQty = o.qty
+                olist.removeOrder(o)
                 # We need to keep eating into volume at this price
                 qtyToTrade -= tradedQty
 
-            if self.verbose:
-                print('>>> TRADE \nt=%d $%f n=%d p1=%d p2=%d' % (
-                    self.time, tradedPrice, tradedQty,
-                    counterparty, quote.id
+            if True: #self.verbose:
+                print('TRADE qty:%d @ $%.2f   p1=%d p2=%d  (left:%d)' % (
+                    tradedQty, tradedPrice,
+                    counterparty, quote.id, qtyToTrade
                 ))
 
             # Trade Transaction
             tx = {
-                'timestamp' : self.time, # current time
-                'price'     : tradedPrice,
-                'qty'       : tradedQty
+                'time'  : self.currentTime(),
+                'price' : tradedPrice,
+                'qty'   : tradedQty
             }
-            if side == 'bid':
-                tx['party1'] = [counterparty, 'bid', order.id]
+            if quote.side == 'bid':
+                tx['party1'] = [counterparty, 'bid', o.id]
                 tx['party2'] = [quote.id, 'ask', None]
-            else:
-                tx['party1'] = [counterparty, 'ask', order.id]
+            elif quote.side == 'ask':
+                tx['party1'] = [counterparty, 'ask', o.id]
                 tx['party2'] = [quote.id, 'bid', None]
 
             self.tape.append(tx)
@@ -219,8 +228,8 @@ class OrderBook(object):
     def tapeDump(self, fname, fmode, tmode):
             dumpfile = open(fname, fmode)
             for tapeitem in self.tape:
-                dumpfile.write('%s, %s, %s\n' % (tapeitem['timestamp'], 
-                                                 tapeitem['price'], 
+                dumpfile.write('%s,%s,%s\n' % (tapeitem['time'],
+                                                 tapeitem['price'],
                                                  tapeitem['qty']))
             dumpfile.close()
             if tmode == 'wipe':
@@ -229,35 +238,33 @@ class OrderBook(object):
     @TS.timeit
     def __str__(self):
         fileStr = StringIO()
+        fileStr.write("\n" + "="*20 + '  LMDB  ' + "="*20 + "\n")
+
         fileStr.write("------ Bids -------\n")
-        if self.bids != None and len(self.bids) > 0:
-            for k, v in self.bids.priceTree.items(reverse=True):
-                fileStr.write('%s' % v)
+        for o in self.bids.getlist():
+            add = ("%10d @ %8.2f %10d\n" % (
+                o.qty, o.price, o.id,
+            ))
+            fileStr.write(add)
+
         fileStr.write("\n------ Asks -------\n")
-        if self.asks != None and len(self.asks) > 0:
-            for k, v in self.asks.priceTree.items():
-                fileStr.write('%s' % v)
-        fileStr.write("\n------ Trades ------\n")
+        for o in self.asks.getlist():
+            add = ("%10d @ %8.2f %10d\n" % (
+                o.qty, o.price, o.id,
+            ))
+            fileStr.write(add)
+
+        fileStr.write("\n------ Trades -----\n")
         if self.tape != None and len(self.tape) > 0:
             num = 0
             for entry in self.tape:
                 if num < 5:
                     fileStr.write(str(entry['qty']) + " @ " + 
                                   str(entry['price']) + 
-                                  " (" + str(entry['timestamp']) + ")\n")
+                                  " (" + str(entry['time']) + ")\n")
                     num += 1
                 else:
                     break
-
-        fileStr.write("\n" + "="*20 + '  LMDB  ' + "="*20 + "\n")
-
-        fileStr.write("------ Bids -------\n")
-        fileStr.write(self.bids.get_db_list())
-
-        fileStr.write("\n------ Asks -------\n")
-        fileStr.write(self.asks.get_db_list())
-
-        fileStr.write("\n------ Trades -----\n")
 
         fileStr.write("\n")
         return fileStr.getvalue()
