@@ -1,171 +1,139 @@
-import stats
-from lob.model import Quote, Order, Account, decode, encode
+from lob.model import Order, encode, decode
+from stats import Stats, get_size, sizefmt
 
+TS = Stats()
 
-TS = stats.Stats()
-
-
-class OrderList(object):
-    def __init__(self, env, db, idb, side):
-        self.priceTree = {}
-        self.priceMap = {}  # Map from price -> orderList object
-        self.orderMap = {}  # Order ID to Order object
-        self.volume = 0     # How much volume on this side?
-        self.nOrders = 0   # How many orders?
-        self.lobDepth = 0  # How many different prices on lob?
-
-        self.__prices = []
-        self._shits = []
-
+class OrderList:
+    def __init__(self, env, side):
         self.env = env
-        self.db = db
-        self.idb = idb
         self.side = side
 
-        self.txn = self.env.begin(db=self.db)
+        self.desc = 'desc' if side == 'bid' else 'asc'
+
+        self.idb = env.open_db(b'ids')
+
+        if side == 'bid':
+            self.db = env.open_db(b'bids', dupsort=True)
+        elif side == 'ask':
+            self.db = env.open_db(b'asks', dupsort=True)
+        else:
+            raise Exception('Invalid side: '+side)
+
+        #self.txn = env.begin(db=self.db)
+        #self.cur = self.txn.cursor()
+
+        # Hydrate any collections. Need to know if we can iterate
+
+        self.queue = self.getlist()
 
     def __iter__(self):
+        print('get iter..')
+        # prime pump
+        #self.queue = self.getlist()
+        self.itxn = self.env.begin(db=self.db)
+        self.icur = self.itxn.cursor()
+
+        if self.side == 'bid':
+            self.icur.last()
+        elif self.side == 'ask':
+            self.icur.first()
 
         return self
 
+    def __len__(self):
+        print('get len..')
+        # return len of primed pump here
+        return 0
+        #return len(self.queue)
+
     def __next__(self):
-        if len(self._shits) < 1:
+        #if len(self.queue) < 10:
+        #    self.queue = self.getlist()
+        """
+        print('next... ', end='')
+        if not self.queue:
+            print('StopIteration')
             raise StopIteration
-        return self._shits.pop(0)
+        value = self.queue.pop(0)
+        print('pop(0) value:',value)
+        return value
+        """
 
 
-    def subc(self, txn, cur2, key):
-        #cur2 = txn.cursor()
-        cur2.set_key(key)
-        last_value = 0
-        back = []
-        for key, value in cur2.iternext_dup(True, True):
-            this_value = decode(value)
-            flag = ''
-            if this_value <= last_value:
-                flag = '* sort error'
-                #global SORT_ERRORS
-                #SORT_ERRORS += 1
-            last_value = this_value
+        k, v = self.icur.item()
 
-            tid = this_value
-            price = decode(key)
-            qqq = txn.get(value, db=self.idb)
-
-            qty = decode(qqq)
-            f = "%-10d @ %10.2f  tid:%-6d  %s" % (qty, price, tid, flag)
-
-            back.append(f)
-        return back
-
-    def get_db_list(self):
-        txn = self.env.begin(db=self.db)
-        cur = txn.cursor()
-
-        keys = []
-        if self.side == 'ask':
-            cur.first()
-            for key in cur.iternext_nodup(True):
-                keys.append(key)
-        elif self.side == 'bid':
-            cur.last()
-            for key in cur.iterprev_nodup(True):
-                keys.append(key)
-
-        bitches = []
-        for key in keys:
-            #print(decode(key))
-            back = self.subc(txn, cur, key)
-            bitches.extend(back)
-
-        return "\n".join(bitches) + "\n"
-
-    @TS.timeit
-    def initPrices(self):
-        txn = self.env.begin(db=self.db)
-        cur = txn.cursor()
-
-        keys = []
-        if self.side == 'ask':
-            cur.first()
-            for key in cur.iternext_nodup(True):
-                keys.append(key)
-        elif self.side == 'bid':
-            cur.last()
-            for key in cur.iterprev_nodup(True):
-                keys.append(key)
-        self.__prices = keys
+        if self.side == 'bid':
+            self.icur.prev()
+            #k, v = self.icur.iterprev(True, True)
+        elif self.side == 'ask':
+            self.icur.next()
+            #k, v = self.icur.iternext(True, True)
 
 
-        self._shits = []
+        id_num = abs(decode(v))
+        qty = self.itxn.get(encode(id_num), db=self.idb)
+        data = {'id':id_num, 'qty':decode(qty), 'price':decode(k)}
+        return Order(**data)
 
-        if len(self.__prices) <= 0:
-            return
-        cur.set_key(self.__prices[0])
 
-        for key, value in cur.iternext_dup(True, True):
-            qty = txn.get(value, db=self.idb)
+    # Actions
+    # 1. insert order - if inmemory copy, needs to insert there too
+    # 2. delete order - if inmemory copy, delete there too
+    # 3. set qty - update memory copy
+    # 4. reset on each new iteration
+    # 5. skip due to account!=account
+    # 6. skip happens when trade doesn't take all qty (update)
 
-            o = Order({
-                'id'    : decode(value),
-                'qty'   : decode(qty),
-                'price' : decode(key),
-            })
-            self._shits.append(o)
+    # skip is just continue.. easy
+    # reset already happens
+    # dont pop(0)
+    # update qty (in list and on disk)
+
+    def getlist(self):
+        orders = []
+
+        with self.env.begin(db=self.db) as txn:
+            cur = txn.cursor()
+
+            if self.side == 'bid':
+                cur.last()
+                raw = [(k,v) for k,v in cur.iterprev(True, True)]
+            elif self.side == 'ask':
+                cur.first()
+                raw = [(k,v) for k,v in cur.iternext(True, True)]
+
+
+            for k, v in raw:
+                id_num = abs(decode(v))
+                qty = txn.get(encode(id_num), db=self.idb)
+                data = {'id':id_num, 'qty':decode(qty), 'price':decode(k)}
+                o = Order(**data)
+                orders.append(o)
+
+        return orders
+
+    def valueId(self, order):
+        if self.side == 'bid':
+            return order.id * -1
+        return order.id
 
     @TS.timeit
     def updateQty(self, order, qty):
         txn = self.env.begin(write=True)
-        txn.put(encode(order.id), encode(order.qty), db=self.idb)
+        res = txn.put(encode(order.id), encode(qty), db=self.idb)
+        print('updateQty('+str(qty)+') res:',res)
         txn.commit()
-
-    def __len__(self):
-        return len(self._shits)
-        #return len(self.orderMap)
-
-    def getPrice(self, price):
-        return self.priceMap[price]
-
-    def getOrder(self, idNum):
-        return self.orderMap[idNum]
-
-    def createPrice(self, price):
-        self.lobDepth += 1
-        newList = OrderList()
-        self.priceTree.insert(price, newList)
-        self.priceMap[price] = newList
-
-    def removePrice(self, price):
-        self.lobDepth -= 1
-        self.priceTree.remove(price)
-        del self.priceMap[price]
-
-    def priceExists(self, price):
-        return price in self.priceMap
-
-    def orderExists(self, idNum):
-        return idNum in self.orderMap
 
     @TS.timeit
     def insertOrder(self, quote):
-        """
-        if self.orderExists(quote['idNum']):
-            self.removeOrderById(quote['idNum'])
-        self.nOrders += 1
-        if quote['price'] not in self.priceMap:
-            self.createPrice(quote['price'])
-        order = Order(quote, self.priceMap[quote['price']])
-        """
-        self.nOrders += 1
-
-        order = Order(quote)
-        #self.priceMap[order.price].appendOrder(order)
-        #self.orderMap[order.idNum] = order
-        self.volume += order.qty
+        order = Order(quote.to_dict())
+        #self.volume += order.qty
 
         txn = self.env.begin(write=True)
-        txn.put(encode(order.id), encode(order.qty), db=self.idb)
-        txn.put(encode(order.price), encode(order.id), db=self.db)
+        res1 = txn.put(encode(order.id), encode(order.qty), db=self.idb)
+        res2 = txn.put(encode(order.price), encode(self.valueId(order)), db=self.db)
+        print('insertOrder res:',res1, res2)
+
         txn.commit()
 
     def updateOrder(self, orderUpdate):
@@ -185,17 +153,11 @@ class OrderList(object):
 
     @TS.timeit
     def removeOrder(self, order):
-        self.nOrders -= 1
+        #self.nOrders -= 1
         txn = self.env.begin(write=True)
-        txn.delete(encode(order.price), encode(order.id), db=self.db)
-        txn.delete(encode(order.id), db=self.idb)
+        res1 = txn.delete(encode(order.price), encode(self.valueId(order)), db=self.db)
+        res2 = txn.delete(encode(order.id), db=self.idb)
+        print('removeOrder res:',res1, res2)
+
         txn.commit()
-
-    @TS.timeit
-    def firstPrice(self):
-        if len(self.__prices) > 0:
-            return decode(self.__prices[0])
-        else:
-            return None
-
 
