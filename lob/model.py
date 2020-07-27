@@ -77,10 +77,14 @@ class Order(Base):
         Column('price',      int, required=True),
         Column('qty',        int, required=True),
         Column('account_id', int, required=False),
+        Column('in_db',      bool, required=True, default=False),
     )
 
     __slots__ = [c.name for c in cols]
 
+    @property
+    def idb_value(self):
+        return None
 
 class Trade(Base):
     cols = (
@@ -94,9 +98,10 @@ class Trade(Base):
 
 class Account(Base):
     cols = (
-        Column('id',      int, required=True),
-        Column('balance', int, required=True),
-        Column('vol30d',  int, required=True)
+        Column('id',       int, required=True),
+        Column('asset_id', int, required=True),
+        Column('balance',  int, required=True),
+        Column('vol30d',   int, required=True)
     )
 
     __slots__ = [c.name for c in cols]

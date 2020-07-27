@@ -12,10 +12,14 @@ import stats
 
 TS = stats.Stats()
 
+# A flush will occur every x seconds or every y pending operations.
+FLUSH_TIME_SECONDS = 2
+FLUSH_PENDING_COUNT = 5000
+
 class OrderBook(object):
-    @TS.timeit
-    def __init__(self, env, tick_size = 0.0001):
+    def __init__(self, env, trades_file, tick_size = 0.0001):
         self.tape = deque(maxlen=None) # Index [0] is most recent trade
+        self.trades_file = trades_file
         self.lastTick = None
         self.lastTimestamp = 0
         self.tickSize = tick_size
@@ -30,33 +34,35 @@ class OrderBook(object):
         self.bids = OrderList(self.env, 'bid')
         self.asks = OrderList(self.env, 'ask')
 
+        self.flush_size = FLUSH_PENDING_COUNT
+
+        self.last_flush = time.time()
+        self.count = 0
+
     def clipPrice(self, price):
         """ Clips the price according to the ticksize """
         return round(price, int(math.log10(1 / self.tickSize)))
-
-    def updateTime(self):
-        self.time+=1
 
     # Nanoseconds µs
     def currentTime(self):
         return int(time.time() * 1000 * 1000)
 
-    @TS.timeit
-    def commit(self):
-        print('commit()')
-        print('  write trades')
-        print('  write ledgers')
-        print('  write completed orders')
-        print('  write book cache')
-        print('  write ohlcv')
 
-        """
-        print('# '*int(78/2))
-        self.bids.stats()
-        print('-'*78)
-        self.asks.stats()
-        print('# '*int(78/2))
-        """
+    @TS.timeit
+    def flush(self):
+        with self.env.begin(write=True) as txn:
+            self.bids.flush(txn)
+            self.asks.flush(txn)
+            self.tapeDump(self.trades_file, 'a', 'wipe')
+            #print('sleep 5 seconds after flush()..')
+            #time.sleep(5)
+            # write out trades
+            # write out order update logs (status and qty change)
+            # write out book cache (for charts)
+
+            # I think subsequent trade processing can do these:
+            # write out ledgers (do this here?)
+            # write out ohlcv? (can trades produce this?)
 
     def getSide(self, side, other=False):
         if other: side = 'ask' if side == 'bid' else 'bid'
@@ -65,17 +71,23 @@ class OrderBook(object):
 
     @TS.timeit
     def processOrder(self, quote):
-        print('process:',quote)
+        #print('process:',quote)
         orderInBook = None
+        self.count += 1
         if quote.type == 'market':
             trades = self.processMarketOrder(quote)
         elif quote.type == 'limit':
             trades, orderInBook = self.processLimitOrder(quote)
         else:
             sys.exit("processOrder() given neither 'market' nor 'limit'")
+
+        if self.count > self.flush_size or time.time() - self.last_flush > 1:
+            self.flush()
+            self.last_flush = time.time()
+            self.count = 0
+
         return trades, orderInBook
 
-    @TS.timeit
     def processMarketOrder(self, quote):
         trades = []
         qtyToTrade = quote.qty
@@ -87,7 +99,6 @@ class OrderBook(object):
         trades += newTrades
         return trades
 
-    @TS.timeit
     def processLimitOrder(self, quote):
         orderInBook = None
         trades = []
@@ -109,20 +120,19 @@ class OrderBook(object):
                 tlist = self.bids
             elif quote.side == 'ask':
                 tlist = self.asks
-            tlist.insertOrder(quote)
+            tlist.insert(quote)
             orderInBook = quote
 
         return trades, orderInBook
 
-    @TS.timeit
     def processList(self, olist, quote, qtyAss):
         qtyToTrade = qtyAss
         trades = []
-        print('processList', '-'*50)
+        #print('processList', '-'*50)
         cnt = 0
         is_limit = quote.type == 'limit'
-        for i, o in enumerate(olist):
-
+        for i, raw in enumerate(olist):
+            o = olist.get_order(raw)
             if qtyToTrade <= 0:
                 break
             if is_limit and olist.side == 'ask' and o.price > quote.price:
@@ -130,7 +140,7 @@ class OrderBook(object):
             elif is_limit and olist.side == 'bid' and o.price < quote.price:
                 break
 
-            print('it %4d>' % (i,),o)
+            #print('it %4d>' % (i,),o)
 
             cnt += 1
             #print(cnt, o)
@@ -140,19 +150,19 @@ class OrderBook(object):
                 tradedQty = qtyToTrade
                 # Amend book order
                 newBookQty = o.qty - qtyToTrade
-                olist.updateQty(o, newBookQty)
+                olist.update_qty(o, newBookQty)
                 qtyToTrade = 0
             elif qtyToTrade == o.qty:
                 tradedQty = qtyToTrade
-                olist.removeOrder(o)
+                olist.delete(o)
                 qtyToTrade = 0
             else:
                 tradedQty = o.qty
-                olist.removeOrder(o)
+                olist.delete(o)
                 # We need to keep eating into volume at this price
                 qtyToTrade -= tradedQty
 
-            if True: #self.verbose:
+            if self.verbose:
                 print('TRADE qty:%d @ $%.2f   p1=%d p2=%d  (left:%d)' % (
                     tradedQty, tradedPrice,
                     counterparty, quote.id, qtyToTrade
@@ -224,7 +234,6 @@ class OrderBook(object):
             sys.exit('getVolumeAtPrice() given neither bid nor ask')
 
 
-    @TS.timeit
     def tapeDump(self, fname, fmode, tmode):
             dumpfile = open(fname, fmode)
             for tapeitem in self.tape:
@@ -233,9 +242,8 @@ class OrderBook(object):
                                                  tapeitem['qty']))
             dumpfile.close()
             if tmode == 'wipe':
-                    self.tape = []
+                self.tape = deque(maxlen=None)
 
-    @TS.timeit
     def __str__(self):
         fileStr = StringIO()
         fileStr.write("\n" + "="*20 + '  LMDB  ' + "="*20 + "\n")
@@ -265,6 +273,16 @@ class OrderBook(object):
                     num += 1
                 else:
                     break
+
+        fileStr.write("\n------ Pending -------\n")
+        fileStr.write("bids:\n")
+        for k, v in self.bids.pending.items():
+            add = ("%10d %s\n" % (k,v))
+            fileStr.write(add)
+        fileStr.write("\nasks:\n")
+        for k, v in self.asks.pending.items():
+            add = ("%10d %s\n" % (k,v))
+            fileStr.write(add)
 
         fileStr.write("\n")
         return fileStr.getvalue()

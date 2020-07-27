@@ -1,5 +1,8 @@
+from sortedcontainers import SortedList, SortedSet
+
 from lob.model import Order, encode, decode
 from stats import Stats, get_size, sizefmt
+import time
 
 TS = Stats()
 
@@ -19,26 +22,128 @@ class OrderList:
         else:
             raise Exception('Invalid side: '+side)
 
-        #self.txn = env.begin(db=self.db)
-        #self.cur = self.txn.cursor()
 
-        # Hydrate any collections. Need to know if we can iterate
+        """
+        Sequence key
 
-        self.queue = self.getlist()
+        The sequence key is used in both the orders SortedList and lmdb
+        databases bids and asks. The key is 16 bytes. 8 bytes price +
+        8 bytes id (sequence number). The id (sequence number) represents
+        the order of orders.
+
+        Processing order is as follows:
+        For asks, ascending price and ascending id. The first order to match
+        is the lowest price and the first order at that price.
+
+        For bids, descending price and ascending id. The first order to match
+        is the highest price and the first order at that price.
+
+        Price + id for asks are already in combined sort order. For bids,
+        we change the id to a negative number so that sorting both combined
+        result in proper order.
+
+        """
+
+        # Current batch of orders
+        self.order_idx = {}          # order.id -> Order
+        self.orders = SortedList()   # [sequence key..]
+
+        # Current pending operations
+        self.pending = {}            # order.id -> [ops..]
+
+        # Orders waiting to be deleted are moved here
+        self.deleted_order_idx = {}  # order.id -> Order
+
+        self.dirty = False
+
+        # Hydrate current batch
+        self.init()
+
+        # Debug
+        print(self.side)
+        print('orders:',len(self.orders),'size:',get_size(self.orders))
+        print('order_idx:',len(self.order_idx.keys()), 'size:', get_size(self.order_idx))
+
+
+    @TS.timeit
+    def init(self):
+        orders, order_idx = self.get_raw_list()
+        self.order_idx = order_idx
+        self.orders = SortedList(orders)
+
+    def refill(self):
+        if self.dirty:
+            raise Exception('Cannot refill while dirty. flush first')
+        pass
+        # update self.orders
+        # update self.order_idx
+
+    def dump_pending(self):
+        print("------ Pending -------")
+        print(self.side+":")
+        for k in sorted(self.pending.keys()):
+            v = self.pending[k]
+            if v[-1] == 'remove':
+                o = self.deleted_order_idx[k]
+            else:
+                o = self.order_idx[k]
+
+            print(("%10d %s %s" % (k, v, o)))
+
+    # Flush changes to disk
+    @TS.timeit
+    def flush(self, txn):
+        for order_id in self.pending.keys():
+            ops = self.pending[order_id]
+            if ops[-1] == 'remove':
+                o = self.deleted_order_idx[order_id]
+            else:
+                o = self.order_idx[order_id]
+
+            if ops[0] == 'insert' and ops[-1] == 'remove':
+                pass
+            elif ops[-1] == 'insert':
+                self.db_insert(txn, o)
+                o.in_db = True
+            elif ops[-1] == 'remove' and o.in_db:
+                self.db_delete(txn, o)
+            elif ops[-1] == 'qty':
+                self.db_update(txn, o)
+
+        self.pending = {}
+        self.deleted_order_idx = {}
+
+    @TS.timeit
+    def db_insert(self, txn, o):
+        r1 = txn.put(encode(o.id), encode(o.qty), db=self.idb)
+        r2 = txn.put(encode(o.price), encode(self.valueId(o)),
+            db=self.db)
+        if not r1 or not r2:
+            raise Exception('Should we die on duplicate insert?')
+
+    @TS.timeit
+    def db_delete(self, txn, o):
+        r1 = txn.delete(encode(o.price), encode(self.valueId(o)), db=self.db)
+        r2 = txn.delete(encode(o.id), db=self.idb)
+        if not r1 or not r2:
+            self.dump_pending()
+            print('r1:',r1,'r2:',r2)
+            print(o)
+            raise Exception('Should we die on failed delete?')
+
+    @TS.timeit
+    def db_update(self, txn, o):
+        #value = encode(o.qty) + encode(o.account_id)
+        r = txn.put(encode(o.id), encode(o.qty), db=self.idb)
+
 
     def __iter__(self):
-        print('get iter..')
+        #print('get iter..')
         # prime pump
-        #self.queue = self.getlist()
-        self.itxn = self.env.begin(db=self.db)
-        self.icur = self.itxn.cursor()
-
         if self.side == 'bid':
-            self.icur.last()
+            return self.orders.irange(reverse=True)
         elif self.side == 'ask':
-            self.icur.first()
-
-        return self
+            return self.orders.irange()
 
     def __len__(self):
         print('get len..')
@@ -46,7 +151,12 @@ class OrderList:
         return 0
         #return len(self.queue)
 
-    def __next__(self):
+    def get_order(self, raw):
+        raw_id = abs(decode(raw[8:]))
+
+        return self.order_idx[raw_id]
+
+    def xx__next__(self):
         #if len(self.queue) < 10:
         #    self.queue = self.getlist()
         """
@@ -61,7 +171,9 @@ class OrderList:
 
 
         k, v = self.icur.item()
-
+        if not k or not v:
+            raise StopIteration
+        
         if self.side == 'bid':
             self.icur.prev()
             #k, v = self.icur.iterprev(True, True)
@@ -75,19 +187,41 @@ class OrderList:
         data = {'id':id_num, 'qty':decode(qty), 'price':decode(k)}
         return Order(**data)
 
+    def db_iter_reset(self, cur):
+        if self.side == 'bid':
+            cur.last()
+        elif self.side == 'ask':
+            cur.first()
 
-    # Actions
-    # 1. insert order - if inmemory copy, needs to insert there too
-    # 2. delete order - if inmemory copy, delete there too
-    # 3. set qty - update memory copy
-    # 4. reset on each new iteration
-    # 5. skip due to account!=account
-    # 6. skip happens when trade doesn't take all qty (update)
+    def db_iter(self, cur):
+        if self.side == 'bid':
+            return cur.iterprev(True, True)
+        elif self.side == 'ask':
+            return cur.iternext(True, True)
 
-    # skip is just continue.. easy
-    # reset already happens
-    # dont pop(0)
-    # update qty (in list and on disk)
+    @TS.timeit
+    def get_raw_list(self, size=40000):
+        orders = []
+        order_idx = {}
+        with self.env.begin(db=self.db) as txn:
+            cur = txn.cursor()
+
+            self.db_iter_reset(cur)
+            for cnt, (k, v) in enumerate(self.db_iter(cur)):
+                if cnt > size: # This break should occur at the end of a dup
+                    break
+                orders.append(k + v)
+
+            for raw in orders:
+                price = decode(raw[:8])
+                id_num = abs(decode(raw[8:]))
+                qty = txn.get(encode(id_num), db=self.idb)
+                data = {'id':id_num, 'qty':decode(qty), 'price':price,
+                    'in_db':True}
+                o = Order(**data)
+                order_idx[id_num] = o
+
+        return orders, order_idx
 
     def getlist(self):
         orders = []
@@ -117,26 +251,30 @@ class OrderList:
             return order.id * -1
         return order.id
 
-    @TS.timeit
-    def updateQty(self, order, qty):
-        txn = self.env.begin(write=True)
-        res = txn.put(encode(order.id), encode(qty), db=self.idb)
-        print('updateQty('+str(qty)+') res:',res)
-        txn.commit()
+    def rawId(self, order):
+        return encode(order.price) + encode(self.valueId())
+
+    def add_pending(self, order, state):
+        if order.id not in self.pending:
+            self.pending[order.id] = []
+        self.pending[order.id].append(state)
 
     @TS.timeit
-    def insertOrder(self, quote):
+    def update_qty(self, order, qty):
+        self.order_idx[order.id].qty = qty
+        self.add_pending(order, 'qty')
+
+    @TS.timeit
+    def insert(self, quote):
         order = Order(quote.to_dict())
-        #self.volume += order.qty
+        price_id = encode(order.price) + encode(self.valueId(order))
+        self.order_idx[order.id] = order
+        # If this price outside of what we have in memory, dont add it here
+        self.orders.add(price_id)
+        self.add_pending(order, 'insert')
 
-        txn = self.env.begin(write=True)
-        res1 = txn.put(encode(order.id), encode(order.qty), db=self.idb)
-        res2 = txn.put(encode(order.price), encode(self.valueId(order)), db=self.db)
-        print('insertOrder res:',res1, res2)
-
-        txn.commit()
-
-    def updateOrder(self, orderUpdate):
+    @TS.timeit
+    def update(self, orderUpdate):
         order = self.orderMap[orderUpdate['idNum']]
         originalVolume = order.qty
         if orderUpdate['price'] != order.price:
@@ -152,12 +290,11 @@ class OrderList:
         self.volume += order.qty-originalVolume
 
     @TS.timeit
-    def removeOrder(self, order):
-        #self.nOrders -= 1
-        txn = self.env.begin(write=True)
-        res1 = txn.delete(encode(order.price), encode(self.valueId(order)), db=self.db)
-        res2 = txn.delete(encode(order.id), db=self.idb)
-        print('removeOrder res:',res1, res2)
-
-        txn.commit()
+    def delete(self, order):
+        price_id = encode(order.price) + encode(self.valueId(order))
+        del self.order_idx[order.id]
+        self.deleted_order_idx[order.id] = order
+        # If this price outside of what we have in memory, dont add it here
+        self.orders.remove(price_id)
+        self.add_pending(order, 'remove')
 
