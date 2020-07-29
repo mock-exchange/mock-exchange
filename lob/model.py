@@ -83,7 +83,7 @@ class Order(Base):
     __slots__ = [c.name for c in cols]
 
     @property
-    def idb_value(self):
+    def seq_key(self):
         return None
 
 class Trade(Base):
