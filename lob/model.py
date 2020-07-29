@@ -3,12 +3,6 @@
 def encode(i): return int(i).to_bytes(8, 'big', signed=True)
 def decode(v): return int.from_bytes(v, 'big', signed=True)
 
-# Pack even sized field
-def pack(v): return b''.join(v)
-def unpack(f, s=8): return [f[i*s:(i*s)+s] for i in range(int(len(f) / s))]
-# id,qty,price,account_id
-
-
 class Column(object):
     __slots__ = ['name', 'type', 'required', 'default']
 
@@ -70,6 +64,18 @@ class Quote(Base):
         if self.type == 'limit' and not self.price:
             raise Exception('Price missing for limit order')
 
+    """
+    def __str__(self):
+        pairs = (
+            'id=' + str(self.id),
+            'type=' + self.type,
+            'side=' + self.side,
+            'price=' + str(self.price),
+            'qty=' + str(self.qty),
+            'account_id=' + str(self.account_id)
+        )
+        return '%s(%s)' % (name, ', '.join(pairs))
+    """
 
 class Order(Base):
     cols = (
