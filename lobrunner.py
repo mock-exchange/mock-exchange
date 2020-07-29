@@ -12,6 +12,10 @@ from lob.orderbook import OrderBook, Quote
 import config as cfg
 from model import Market, Asset, FeeSchedule, Event
 
+import stats
+
+TS = stats.Stats()
+
 BATCH_SIZE = 1000
 
 import lmdb
@@ -40,7 +44,7 @@ class OrderBookRunner():
         db_path = str(cfg.CACHE_DIR / market_code / cfg.LOB_LMDB_NAME)
         self.env = lmdb.open(db_path, max_dbs=3, map_size=cfg.LOB_LMDB_SIZE)
 
-        self.lob = OrderBook(self.env)
+        self.lob = OrderBook(self.env, self.trade_file)
 
         self.assets = {}
         for a in db.query(Asset).all():
@@ -53,6 +57,8 @@ class OrderBookRunner():
         #self.run_from_rq()
         #self.run_from_db()
         self.run_from_file()
+        #self.run_from_samples()
+        #print('no run')
 
     def run_from_rq(self):
         with Connection():
@@ -62,10 +68,13 @@ class OrderBookRunner():
         print('done run()')
 
     def seqTime(self):
+        #c = 1595953130
+        #return int(time.time() - c) * 100
+        #return int(("%.8f" % (time.time() - c)).split('.')[1])
         return int(time.time() * 1000 * 1000 * 10)
 
     def samples(self):
-        start = 500000000
+        start = 5000
         #samples = list(reversed(list(range(start,start+400))))
         samples = list(set([random.randint(1,start) for i in range(600)]))
         ids = random.sample(samples, 300)
@@ -106,42 +115,121 @@ class OrderBookRunner():
 
         return orders
 
+    def run_from_samples(self):
+        self.total_orders = 0
+        self.total_trades = 0
+        self.total_writes = 0
+
+        totaltime = 0
+
+        cnt = -1
+        for quote in self.samples():
+            start = time.time()
+            trades, orderInBook = self.lob.processOrder(quote)
+            self.total_orders += 1
+            self.total_trades += len(trades)
+            totaltime += time.time() - start
+
+            start = time.time()
+            self.lob.flush()
+            totaltime += time.time() - start
+            TS.set('all_in_time', totaltime, self.total_orders)
+
+            print('orders:%d trades:%d writes:%d' % (
+                self.total_orders,self.total_trades,self.total_writes))
+            TS.print_stats()
+
+        print(self.lob)
+
+        start = time.time()
+        self.lob.flush()
+        totaltime += time.time() - start
+        TS.set('all_in_time', totaltime, self.total_orders)
+
+        print('orders:%d trades:%d writes:%d' % (
+            self.total_orders,self.total_trades,self.total_writes))
+
+
+
     def run_from_file(self):
         self.total_orders = 0
         self.total_trades = 0
         self.total_writes = 0
 
-        #with open('quotes') as f:
-        if True:
-            account_id = 10000
+        totaltime = 0
+
+        rows = []
+        with open('quotes') as Qf:
             cnt = 0
-            #for row in f.readlines():
-            for quote in self.samples():
-                """
-                account_id += 1
+            for row in Qf.readlines():
                 cnt += 1
-                if cnt < 499700:
+                if cnt < 500000:
                     continue
-                if cnt > 500100:
-                    break
-                (id, side, qty, price) = row.rstrip('\n').split(',')
-                if cnt == 500100:
-                    qty = 200
-                quote = Quote(id=id, type='limit', side=side,
-                    qty=int(qty), price=int(price), account_id=account_id)
-                """
-                self.run_one(quote)
-            #if cnt % 1000 == 0:
-            #    self.lob.tapeDump(self.trade_file, 'a', 'wipe')
-            #    self.total_writes += 1
+                rows.append(row)
+
+
+        pos_file = 'quotes_pos'
+        position = 0
+        if os.path.exists(pos_file):
+            with open(pos_file) as f:
+                position = int(f.read())
+
+        #with open('quotes') as Qf:
+        if True:
+            BIG_CNT = 0
+            while True:
+                BIG_CNT += 1
+                account_id = 10000
+                cnt = -1
+                for row in rows:
+                #for row in Qf.readlines():
+                #for quote in self.samples():
+                    account_id += 1
+                    cnt += 1
+                    if cnt < position:
+                        continue
+                    if cnt > position + 10000:
+                        with open(pos_file, 'w') as f:
+                            f.write(str(cnt))
+                            f.flush()
+                            os.fsync(f.fileno())
+                        position = cnt
+                        break
+                    (id, side, qty, price) = row.rstrip('\n').split(',')
+                    #if cnt == 500100:
+                    #    qty = 200
+                    quote = Quote(id=int(id), type='limit', side=side,
+                        qty=int(qty), price=int(price), account_id=account_id)
+                    start = time.time()
+
+                    trades, orderInBook = self.lob.processOrder(quote)
+                    self.total_orders += 1
+                    self.total_trades += len(trades)
+
+                    totaltime += time.time() - start
+
+                print(self.lob)
+
+                start = time.time()
+                self.lob.flush()
+                totaltime += time.time() - start
+                TS.set('all_in_time', totaltime, self.total_orders)
+
+                print('orders:%d trades:%d writes:%d' % (
+                    self.total_orders,self.total_trades,self.total_writes))
+                TS.print_stats()
+                print(BIG_CNT,'sleeping 0 seconds..')
+                #time.sleep(1)
+                #if BIG_CNT > 3:
+                break
 
 
         print(self.lob)
 
-        self.lob.tapeDump(self.trade_file, 'a', 'wipe')
-        self.total_writes += 1
-
-        self.lob.commit()
+        start = time.time()
+        self.lob.flush()
+        totaltime += time.time() - start
+        TS.set('all_in_time', totaltime, self.total_orders)
 
         print('orders:%d trades:%d writes:%d' % (
             self.total_orders,self.total_trades,self.total_writes))
@@ -195,7 +283,7 @@ class OrderBookRunner():
             self.total_orders,self.total_trades,self.total_writes))
 
     def run_one(self, quote):
-        start = time.time()
+        #start = time.time()
 
         trades, orderInBook = self.lob.processOrder(quote)
         #OHLC(self.session).update_cache(['shtusd'])
@@ -203,7 +291,7 @@ class OrderBookRunner():
         self.total_orders += 1
         self.total_trades += len(trades)
 
-        elapsed = time.time() - start
+        #elapsed = time.time() - start
         #foo = "  %.5f ms" % (elapsed * 1000,)
         #print('--> trades:',len(trades),'orderInBook:',bool(orderInBook), foo)
         #print()
