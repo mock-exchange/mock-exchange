@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 import config as cfg
 from model import Market
-from lob import OrderBookRunner
+from lobrunner import OrderBookRunner
 
 DAEMON_WAIT_SECS = .2
 
