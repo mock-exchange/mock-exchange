@@ -4,6 +4,7 @@ from collections import deque
 from io import StringIO
 import lmdb
 import time
+from stats import get_size, sizefmt
 
 from .orderlist import OrderList
 from .model import Quote, Trade
@@ -12,9 +13,8 @@ import stats
 
 TS = stats.Stats()
 
-# A flush will occur every x seconds or every y pending operations.
-FLUSH_TIME_SECONDS = 1
-FLUSH_PENDING_COUNT = 20000
+FLUSH_MAX_TIME  = 1      # Max number of seconds until flush()
+FLUSH_MAX_COUNT = 20000  # Max number of orders until flush()
 
 class OrderBook(object):
     def __init__(self, env, trades_file, tick_size = 0.0001):
@@ -34,10 +34,8 @@ class OrderBook(object):
         self.bids = OrderList(self.env, 'bid')
         self.asks = OrderList(self.env, 'ask')
 
-        self.flush_size = FLUSH_PENDING_COUNT
-
-        self.last_flush = time.time()
-        self.count = 0
+        self.time_last_flush = time.time()
+        self.count_since_flush = 0
 
         self.history_count = []
         self.history_elapsed = []
@@ -78,9 +76,11 @@ class OrderBook(object):
 
     @TS.timeit
     def processOrder(self, quote):
-        #foo = 'process: %s' % (quote,)
+        #foo = 'process: %s' % (quote,)  # << this is slow!
+        #foo = (quote.id, quote.type, quote.side, quote.price, quote.qty)  # << this is fast!
+        #print(foo)
         orderInBook = None
-        self.count += 1
+        self.count_since_flush += 1
         if quote.type == 'market':
             trades = self.processMarketOrder(quote)
         elif quote.type == 'limit':
@@ -88,12 +88,13 @@ class OrderBook(object):
         else:
             sys.exit("processOrder() given neither 'market' nor 'limit'")
 
-        if self.count > FLUSH_PENDING_COUNT or time.time() - self.last_flush > FLUSH_TIME_SECONDS:
-            self.history_count.append(self.count)
-            self.history_elapsed.append(time.time() - self.last_flush)
+        if (self.count_since_flush > FLUSH_MAX_COUNT or
+           time.time() - self.time_last_flush > FLUSH_MAX_TIME):
+            self.history_count.append(self.count_since_flush)
+            self.history_elapsed.append(time.time() - self.time_last_flush)
             self.flush()
-            self.last_flush = time.time()
-            self.count = 0
+            self.time_last_flush = time.time()
+            self.count_since_flush = 0
 
         return trades, orderInBook
 
