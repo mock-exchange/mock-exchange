@@ -29,7 +29,7 @@ class Stats:
         out = []
         out.append("%-20s %10s %13s %13s %10s" % (
             'Name','Count','Total','Avg','Ops/sec'))
-        for name in self.types:
+        for name in sorted(self.types):
             cnt = self._stats[name+'_cnt']
             avg = self._stats[name+'_avg']
             tot = self._stats[name+'_tot']
