@@ -71,7 +71,7 @@ class OrderBook(object):
 
     @TS.timeit
     def processOrder(self, quote):
-        #print('process:',quote)
+        print('process:',quote)
         orderInBook = None
         self.count += 1
         if quote.type == 'market':
@@ -131,8 +131,10 @@ class OrderBook(object):
         #print('processList', '-'*50)
         cnt = 0
         is_limit = quote.type == 'limit'
-        for i, raw in enumerate(olist):
-            o = olist.get_order(raw)
+
+        # skip this loop if price <> last
+        for i, seq_key in enumerate(olist):
+            o = olist.get_order(seq_key)
             if qtyToTrade <= 0:
                 break
             if is_limit and olist.side == 'ask' and o.price > quote.price:
@@ -140,7 +142,7 @@ class OrderBook(object):
             elif is_limit and olist.side == 'bid' and o.price < quote.price:
                 break
 
-            #print('it %4d>' % (i,),o)
+            print('  %-4d %s' % (i,o))
 
             cnt += 1
             #print(cnt, o)
@@ -184,6 +186,7 @@ class OrderBook(object):
             self.tape.append(tx)
             trades.append(tx)
 
+        olist.apply_deletes()
         return qtyToTrade, trades
 
 
@@ -246,22 +249,24 @@ class OrderBook(object):
 
     def __str__(self):
         fileStr = StringIO()
+        
+        """
         fileStr.write("\n" + "="*20 + '  LMDB  ' + "="*20 + "\n")
 
         fileStr.write("------ Bids -------\n")
-        for o in self.bids.getlist():
+        for o, null in self.bids.get_raw_list(-1):
             add = ("%10d @ %8.2f %10d\n" % (
                 o.qty, o.price, o.id,
             ))
             fileStr.write(add)
 
         fileStr.write("\n------ Asks -------\n")
-        for o in self.asks.getlist():
+        for o, null in self.asks.get_raw_list(-1):
             add = ("%10d @ %8.2f %10d\n" % (
                 o.qty, o.price, o.id,
             ))
             fileStr.write(add)
-
+        """
         fileStr.write("\n------ Trades -----\n")
         if self.tape != None and len(self.tape) > 0:
             num = 0
@@ -274,6 +279,7 @@ class OrderBook(object):
                 else:
                     break
 
+        """
         fileStr.write("\n------ Pending -------\n")
         fileStr.write("bids:\n")
         for k, v in self.bids.pending.items():
@@ -283,6 +289,7 @@ class OrderBook(object):
         for k, v in self.asks.pending.items():
             add = ("%10d %s\n" % (k,v))
             fileStr.write(add)
+        """
 
         fileStr.write("\n")
         return fileStr.getvalue()
