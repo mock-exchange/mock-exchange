@@ -274,7 +274,7 @@ class OrderList:
             cur.first()
         """
     @TS.timeit
-    def db_get_list(self, size=40000, order=None):
+    def db_get_list(self, size=5000, order=None):
         orders = []
         order_idx = {}
         with self.env.begin(db=self.db) as txn:
@@ -363,15 +363,9 @@ class OrderList:
         # asks: 5,6,7   seq < [-1]
         # bids: 7,6,5   seq > [-1]
         added = 'no'
-        if ((
-                len(self.orders) > 0 and
-                self.side == 'ask' and seq_key < self.orders[-1])
-            or (
-                len(self.orders) > 0 and
-                self.side == 'bid' and seq_key < self.orders[-1]
-            )):
-                self.orders.add(seq_key)
-                added = 'yes'
+        if (len(self.orders) > 0 and seq_key < self.orders[-1]):
+            self.orders.add(seq_key)
+            added = 'yes'
 
         #print('%'*70)
         #print('insert() added:',order.id,'to orders:',added, ' total:',len(self.orders))
