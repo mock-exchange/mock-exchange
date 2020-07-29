@@ -13,8 +13,8 @@ import stats
 TS = stats.Stats()
 
 # A flush will occur every x seconds or every y pending operations.
-FLUSH_TIME_SECONDS = 2
-FLUSH_PENDING_COUNT = 5000
+FLUSH_TIME_SECONDS = 1
+FLUSH_PENDING_COUNT = 20000
 
 class OrderBook(object):
     def __init__(self, env, trades_file, tick_size = 0.0001):
@@ -38,6 +38,9 @@ class OrderBook(object):
 
         self.last_flush = time.time()
         self.count = 0
+
+        self.history_count = []
+        self.history_elapsed = []
 
     def clipPrice(self, price):
         """ Clips the price according to the ticksize """
@@ -69,9 +72,13 @@ class OrderBook(object):
         obj = self.bids if side == 'bid' else self.asks
         return side, obj
 
+    def dump_history(self):
+        for i in range(len(self.history_count)):
+            print("%-5d %12d %12.4f" % (i, self.history_count[i], self.history_elapsed[i]))
+
     @TS.timeit
     def processOrder(self, quote):
-        print('process:',quote)
+        #foo = 'process: %s' % (quote,)
         orderInBook = None
         self.count += 1
         if quote.type == 'market':
@@ -81,7 +88,9 @@ class OrderBook(object):
         else:
             sys.exit("processOrder() given neither 'market' nor 'limit'")
 
-        if self.count > self.flush_size or time.time() - self.last_flush > 1:
+        if self.count > FLUSH_PENDING_COUNT or time.time() - self.last_flush > FLUSH_TIME_SECONDS:
+            self.history_count.append(self.count)
+            self.history_elapsed.append(time.time() - self.last_flush)
             self.flush()
             self.last_flush = time.time()
             self.count = 0
@@ -142,7 +151,9 @@ class OrderBook(object):
             elif is_limit and olist.side == 'bid' and o.price < quote.price:
                 break
 
-            print('  %-4d %s' % (i,o))
+            #foo = '  %-4d %s' % (i,o)
+            #foo = ','.join((str(o.price),str(o.id)))
+            #foo = "%d,%d" % (o.price,o.id)
 
             cnt += 1
             #print(cnt, o)
