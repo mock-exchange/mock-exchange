@@ -439,8 +439,13 @@ def create_event(method):
     #e = Entity(**data)
     #db.session.add(e)
     #db.session.commit()
-    data['seq'] = conn.incr(m.code + '_seq')
+    #data['seq'] = conn.incr(m.code + '_seq')
     
+    #rs = db.engine.execute("SELECT nextval('order_id_seq')")
+    with db.engine.connect() as con:
+        rs = con.execute("SELECT nextval('order_id_seq')")
+        data['id'] = rs.fetchone()[0]
+
     q = SimpleQueue(conn, m.code)
     job = q.enqueue(method, data)
 
