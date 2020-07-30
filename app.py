@@ -16,7 +16,7 @@ from marshmallow import Schema, fields, ValidationError, pre_load, validate
 from marshmallow import post_dump
 
 import redis
-import rq
+from redis_queue import SimpleQueue
 
 import config as cfg
 from config import SQL, DT_FORMAT
@@ -29,6 +29,7 @@ app = Flask(__name__, static_folder='build', static_url_path='/')
 app.config['SQLALCHEMY_DATABASE_URI'] = cfg.DB_CONN
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+#r = redis.Redis()
 conn = redis.from_url(cfg.RQ_CONN)
 db = SQLAlchemy(app)
 
@@ -382,20 +383,33 @@ def get_entity_list(entity):
 
     return jsonify(result)
 
-@app.route("/api/event/<string:market>", methods=["POST"])
-def create_event(market):
-    m = get_market(market)
-    if not m:
-        return {"message": "Invalid market"}, 400
+"""
+All: account_id
+/api/add-order
+    market,type,side,price,qty
+/api/cancel-order
+    market,uuid
+/api/amend-order
+    market,uuid,price,qty
+/api/withdraw
+    asset,amount
+/api/deposit
+    asset,amount
+"""
+@app.route("/api/priv/<string:method>", methods=["POST"])
+def create_event(method):
+    methods = ('add-order','cancel-order','withdraw','deposit')
+    if method not in methods:
+        return {"message": "Invalid method"}, 400
+    
 
-    #return {"market.code": m.code}
-
-    Entity = ENTITY['event']
-    Schema = ENTITY_SCHEMA['event']
+    #Entity = ENTITY['event']
+    #Schema = ENTITY_SCHEMA['event']
 
     json_data = request.get_json()
     if not json_data:
         return {"message": "No input data provided"}, 400
+    """
     # Validate and deserialize input
     try:
         data = Schema().load(json_data)
@@ -407,26 +421,32 @@ def create_event(market):
         body = ValidateEventBody().load(data)
     except ValidationError as err:
         return err.messages, 422
+    """
+    data = json_data
+    m = get_market(data['market'])
+    if not m:
+        return {"message": "Invalid market"}, 400
 
-    # Account balance validation
+    #return {"market.code": m.code}
+
+    # Account balance validation (withdraw, 
     # get balance from ledger
     # get reserve
     # balance - reserve
 
     # Add to queue
-    #with rq.Connection(conn):
-    if True:
-        data['uuid'] = shortuuid.uuid()
-        e = Entity(**data)
-        db.session.add(e)
-        db.session.commit()
+    data['uuid'] = shortuuid.uuid()
+    #e = Entity(**data)
+    #db.session.add(e)
+    #db.session.commit()
+    data['seq'] = conn.incr(m.code + '_seq')
+    
+    q = SimpleQueue(conn, m.code)
+    job = q.enqueue(method, data)
 
-        #q = rq.Queue(m.code, connection=conn)
-        #job = q.enqueue(data['method'], data, job_id=data['uuid'])
-
-    result = Schema().dump(e)
-    del result['id']
-    return {"message": "Event queued.", "event": result}
+    #result = Schema().dump(e)
+    #del result['id']
+    return {"message": "Event queued.", "event": data}
 
 
 # Create
