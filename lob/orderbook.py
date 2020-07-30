@@ -3,28 +3,20 @@ import math
 from collections import deque
 from io import StringIO
 import lmdb
-import time
+from time import time
 from stats import get_size, sizefmt
 
 from .orderlist import OrderList
 from .model import Quote, Trade
 
-import stats
 
-TS = stats.Stats()
-
-FLUSH_MAX_TIME  = 1      # Max number of seconds until flush()
-FLUSH_MAX_COUNT = 20000  # Max number of orders until flush()
+FLUSH_TIME  = 1      # Number of seconds until flush()
+FLUSH_COUNT = 20000  # Number of orders until flush()
 
 class OrderBook(object):
-    def __init__(self, env, trades_file, tick_size = 0.0001):
+    def __init__(self, env, trades_file):
         self.tape = deque(maxlen=None) # Index [0] is most recent trade
         self.trades_file = trades_file
-        self.lastTick = None
-        self.lastTimestamp = 0
-        self.tickSize = tick_size
-        self.time = 0
-        self.nextQuoteID = 0
 
         self.verbose = False
 
@@ -34,22 +26,39 @@ class OrderBook(object):
         self.bids = OrderList(self.env, 'bid')
         self.asks = OrderList(self.env, 'ask')
 
-        self.time_last_flush = time.time()
-        self.count_since_flush = 0
+        # Since last flush
+        self.flushed = time()
+        self.count = 0
 
-        self.history_count = []
-        self.history_elapsed = []
+        #self.ocnt = 0
+        #self.ccnt = 0
 
-    def clipPrice(self, price):
-        """ Clips the price according to the ticksize """
-        return round(price, int(math.log10(1 / self.tickSize)))
+        self.history = []
+
+    # self.count('orders')
+    # self.count('cancels')
+    #@property
+    #def count(self, name):
+    #    pass
 
     # Nanoseconds µs
     def currentTime(self):
-        return int(time.time() * 1000 * 1000)
+        return int(time() * 1000 * 1000)
 
+    def check_flush(self):
+        elapsed = time() - self.flushed
+        if (self.count > FLUSH_COUNT or elapsed > FLUSH_TIME):
 
-    @TS.timeit
+            if len(self.history) > 10:
+                n = len(self.history) - 10
+                #self.history = self.history[n:]
+                self.history.pop(0)
+            self.history.append((self.count, elapsed))
+
+            self.flush()
+            self.flushed = time()
+            self.count = 0
+
     def flush(self):
         with self.env.begin(write=True) as txn:
             self.bids.flush(txn)
@@ -65,22 +74,16 @@ class OrderBook(object):
             # write out ledgers (do this here?)
             # write out ohlcv? (can trades produce this?)
 
-    def getSide(self, side, other=False):
-        if other: side = 'ask' if side == 'bid' else 'bid'
-        obj = self.bids if side == 'bid' else self.asks
-        return side, obj
-
     def dump_history(self):
-        for i in range(len(self.history_count)):
-            print("%-5d %12d %12.4f" % (i, self.history_count[i], self.history_elapsed[i]))
+        for i in range(len(self.history)):
+            count, elapsed = self.history[i]
+            print("%-5d %6d %6.2f %8d ops/sec" % (
+                i, count, elapsed, count / elapsed))
 
-    @TS.timeit
+
     def processOrder(self, quote):
-        #foo = 'process: %s' % (quote,)  # << this is slow!
-        #foo = (quote.id, quote.type, quote.side, quote.price, quote.qty)  # << this is fast!
-        #print(foo)
         orderInBook = None
-        self.count_since_flush += 1
+        self.count += 1
         if quote.type == 'market':
             trades = self.processMarketOrder(quote)
         elif quote.type == 'limit':
@@ -88,13 +91,7 @@ class OrderBook(object):
         else:
             sys.exit("processOrder() given neither 'market' nor 'limit'")
 
-        if (self.count_since_flush > FLUSH_MAX_COUNT or
-           time.time() - self.time_last_flush > FLUSH_MAX_TIME):
-            self.history_count.append(self.count_since_flush)
-            self.history_elapsed.append(time.time() - self.time_last_flush)
-            self.flush()
-            self.time_last_flush = time.time()
-            self.count_since_flush = 0
+        #self.check_flush()
 
         return trades, orderInBook
 
@@ -142,7 +139,6 @@ class OrderBook(object):
         cnt = 0
         is_limit = quote.type == 'limit'
 
-        # skip this loop if price <> last
         for i, seq_key in enumerate(olist):
             o = olist.get_order(seq_key)
             if qtyToTrade <= 0:
@@ -202,11 +198,8 @@ class OrderBook(object):
         return qtyToTrade, trades
 
 
-    def cancelOrder(self, side, idNum, time = None):
-        if time:
-            self.time = time
-        else:
-            self.updateTime()
+    # need: side, price, id
+    def cancelOrder(self, side, idNum):
         if side == 'bid':
             if self.bids.orderExists(idNum):
                 self.bids.removeOrder(idNum)
@@ -216,11 +209,7 @@ class OrderBook(object):
         else:
             sys.exit('cancelOrder() given neither bid nor ask')
 
-    def modifyOrder(self, idNum, orderUpdate, time=None):
-        if time:
-            self.time = time
-        else:
-            self.updateTime()
+    def modifyOrder(self, idNum, orderUpdate):
         side = orderUpdate['side']
         orderUpdate['idNum'] = idNum
         orderUpdate['timestamp'] = self.time
@@ -260,49 +249,4 @@ class OrderBook(object):
                 self.tape = deque(maxlen=None)
 
     def __str__(self):
-        fileStr = StringIO()
-        
-        """
-        fileStr.write("\n" + "="*20 + '  LMDB  ' + "="*20 + "\n")
-
-        fileStr.write("------ Bids -------\n")
-        for o, null in self.bids.get_raw_list(-1):
-            add = ("%10d @ %8.2f %10d\n" % (
-                o.qty, o.price, o.id,
-            ))
-            fileStr.write(add)
-
-        fileStr.write("\n------ Asks -------\n")
-        for o, null in self.asks.get_raw_list(-1):
-            add = ("%10d @ %8.2f %10d\n" % (
-                o.qty, o.price, o.id,
-            ))
-            fileStr.write(add)
-        """
-        fileStr.write("\n------ Trades -----\n")
-        if self.tape != None and len(self.tape) > 0:
-            num = 0
-            for entry in self.tape:
-                if num < 5:
-                    fileStr.write(str(entry['qty']) + " @ " + 
-                                  str(entry['price']) + 
-                                  " (" + str(entry['time']) + ")\n")
-                    num += 1
-                else:
-                    break
-
-        """
-        fileStr.write("\n------ Pending -------\n")
-        fileStr.write("bids:\n")
-        for k, v in self.bids.pending.items():
-            add = ("%10d %s\n" % (k,v))
-            fileStr.write(add)
-        fileStr.write("\nasks:\n")
-        for k, v in self.asks.pending.items():
-            add = ("%10d %s\n" % (k,v))
-            fileStr.write(add)
-        """
-
-        fileStr.write("\n")
-        return fileStr.getvalue()
-
+        return str(self)

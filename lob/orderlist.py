@@ -6,8 +6,7 @@ from stats import Stats
 TS = Stats()
 timeit = TS.timeit
 
-# This the number of orders that will be held in memory. It isn't a hard
-# limit as the cutoff is on the price boundary. 
+# This the number of orders that will be held in memory.
 ORDERS_SIZE = 5000
 
 class OrderList:
@@ -62,9 +61,9 @@ class OrderList:
         self.refill()
 
         # Debug
-        print(self.side)
-        print('orders:',len(self.orders))
-        print('order_idx:',len(self.order_idx.keys()))
+        #print(self.side)
+        #print('orders:',len(self.orders))
+        #print('order_idx:',len(self.order_idx.keys()))
 
 
     def __iter__(self):
@@ -168,11 +167,11 @@ class OrderList:
             order_id = decode(seq_key[8:])
             end_order = self.order_idx[order_id]
 
-        print('refill() side:',self.side,' end_order:',order_id,'idx:',self.iter_idx)
+        #print('refill() side:',self.side,' end_order:',order_id,'idx:',self.iter_idx)
         orders, order_idx = self.db_get_list(order=end_order)
         self.orders += orders
         self.order_idx.update(order_idx)
-        print('refill() added',len(orders),'orders. total:',len(self.orders))
+        #print('refill() added',len(orders),'orders. total:',len(self.orders))
 
     def get_order(self, seq_key):
         order_id = decode(seq_key[8:])
@@ -248,7 +247,7 @@ class OrderList:
     # Flush changes to disk
     @timeit
     def flush(self, txn):
-        print('flush %3s orders:%8d' % (self.side, len(self.orders)))
+        #print('flush %3s orders:%8d' % (self.side, len(self.orders)))
         for order_id in self.pending.keys():
             ops = self.pending[order_id]
             if ops[-1] == 'remove':
