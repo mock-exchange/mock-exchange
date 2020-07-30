@@ -1,10 +1,6 @@
 from sortedcontainers import SortedList, SortedSet
 
 from lob.model import Order, encode, decode
-from stats import Stats
-
-TS = Stats()
-timeit = TS.timeit
 
 # This the number of orders that will be held in memory.
 ORDERS_SIZE = 5000
@@ -14,12 +10,12 @@ class OrderList:
         self.env = env
         self.side = side
 
-        self.idb = env.open_db(b'ids')
+        #self.idb = env.open_db(b'ids')
 
         if side == 'bid':
-            self.db = env.open_db(b'bids', dupsort=True)
+            self.db = env.open_db(b'bids')
         elif side == 'ask':
-            self.db = env.open_db(b'asks', dupsort=True)
+            self.db = env.open_db(b'asks')#, dupsort=True)
         else:
             raise Exception('Invalid side: '+side)
 
@@ -95,12 +91,10 @@ class OrderList:
             price = order.price * -1
         return encode(price) + encode(order.id)
 
-    @timeit
     def update_qty(self, order, qty):
         self.order_idx[order.id].qty = qty
         self.add_pending(order, 'qty')
 
-    @timeit
     def insert(self, quote):
         order = Order(quote.to_dict())
         seq_key = self.seq_key(order)
@@ -128,7 +122,6 @@ class OrderList:
 
             #print('insert() added:',order.id,'to orders:',added, ' total:',len(self.orders))
 
-    @timeit
     def update(self, orderUpdate):
         order = self.orderMap[orderUpdate['idNum']]
         originalVolume = order.qty
@@ -144,7 +137,6 @@ class OrderList:
             order.updateQty(orderUpdate['qty'], orderUpdate['timestamp'])
         self.volume += order.qty-originalVolume
 
-    @timeit
     def delete(self, order):
         self.iter_deletes.append(order)
         self.add_pending(order, 'remove')
@@ -178,31 +170,33 @@ class OrderList:
         return self.order_idx[order_id]
 
 
-    @timeit
     def db_insert(self, txn, o):
         seq_key = self.seq_key(o)
-        r1 = txn.put(encode(o.id), encode(o.qty), db=self.idb)
-        r2 = txn.put(seq_key[:8], seq_key[8:], db=self.db)
-        if not r1 or not r2:
+        value = encode(o.qty) + encode(o.account_id)
+        r1 = txn.put(seq_key, value, db=self.db)
+        #r1 = txn.put(encode(o.id), encode(o.qty), db=self.idb)
+        #r2 = txn.put(seq_key[:8], seq_key[8:], db=self.db)
+        if not r1:
             raise Exception('Should we die on duplicate insert?')
 
-    @timeit
     def db_delete(self, txn, o):
         seq_key = self.seq_key(o)
-        r1 = txn.delete(seq_key[:8], seq_key[8:], db=self.db)
-        r2 = txn.delete(encode(o.id), db=self.idb)
-        if not r1 or not r2:
+        r1 = txn.delete(seq_key, db=self.db)
+        #r1 = txn.delete(seq_key[:8], seq_key[8:], db=self.db)
+        #r2 = txn.delete(encode(o.id), db=self.idb)
+        if not r1:
             self.dump_pending()
-            print('r1:',r1,'r2:',r2)
+            print('r1:',r1)
             print(o)
             raise Exception('Should we die on failed delete?')
 
-    @timeit
     def db_update(self, txn, o):
-        r = txn.put(encode(o.id), encode(o.qty), db=self.idb)
+        seq_key = self.seq_key(o)
+        value = encode(o.qty) + encode(o.account_id)
+        r = txn.put(seq_key, value, db=self.db)
+        #r = txn.put(encode(o.id), encode(o.qty), db=self.idb)
 
-    @timeit
-    def db_get_list(self, order=None):
+    def db_get_list(self, order=None, size=ORDERS_SIZE):
         orders = []
         order_idx = {}
         with self.env.begin(db=self.db) as txn:
@@ -214,30 +208,50 @@ class OrderList:
                 seq_key = self.seq_key(order)
 
             if seq_key:
-                if not cur.set_key_dup(seq_key[:8], seq_key[8:]):
-                    raise Exception('Failed to set_key_dup')
-                if not cur.next_dup():
+                if not cur.set_key(seq_key):
+                    print('id:',decode(seq_key[8:]))
+                    print('price:',abs(decode(seq_key[:8])))
+                    raise Exception('Failed to set_key')
+                if not cur.next():
                     return orders, order_idx
             elif not cur.first():
                 return orders, order_idx
 
             # Fetch list from db
+            pairs = []
             for cnt, (k, v) in enumerate(cur.iternext(True, True)):
                 # Break on size limit
-                if ORDERS_SIZE != -1 and cnt > ORDERS_SIZE:
+                if size != -1 and cnt > size:
                     break
-                orders.append(k + v)
+                pairs.append((k,v))
 
-            for seq_key in orders:
-                price = abs(decode(seq_key[:8]))
-                id_num = decode(seq_key[8:])
-                qty = txn.get(encode(id_num), db=self.idb)
-                data = {'id':id_num, 'qty':decode(qty), 'price':price,
-                    'in_db':True}
+            for kv in pairs:
+                seq_key, value = kv
+                data = {
+                    'id'        : decode(seq_key[8:]),
+                    'price'     : abs(decode(seq_key[:8])),
+                    'qty'       : decode(value[:8]),
+                    'account_id': decode(value[8:]),
+                    'in_db'     : True
+                }
                 o = Order(**data)
-                order_idx[id_num] = o
+                orders.append(seq_key)
+                order_idx[data['id']] = o
 
         return orders, order_idx
+
+    def dump_book(self):
+        with self.env.begin(db=self.db) as txn:
+            cur = txn.cursor()
+            cur.first()
+
+            for cnt, (k, v) in enumerate(cur.iternext(True, True)):
+                id_num     = decode(k[8:])
+                price      = abs(decode(k[:8]))
+                qty        = decode(v[:8])
+                account_id = decode(v[8:])
+                print("%s %10d %10d %10d %10d" % (
+                    self.side, price, id_num, qty, account_id))
 
     def add_pending(self, order, state):
         if order.id not in self.pending:
@@ -245,7 +259,6 @@ class OrderList:
         self.pending[order.id].append(state)
 
     # Flush changes to disk
-    @timeit
     def flush(self, txn):
         #print('flush %3s orders:%8d' % (self.side, len(self.orders)))
         for order_id in self.pending.keys():
