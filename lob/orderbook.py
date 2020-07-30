@@ -8,7 +8,7 @@ from time import time
 from stats import get_size, sizefmt
 
 from .orderlist import OrderList
-from .model import Quote, Trade
+from .model import Quote, Trade, decode
 
 
 FLUSH_TIME  = 1      # Number of seconds until flush()
@@ -150,6 +150,9 @@ class OrderBook(object):
             tlist.insert(quote)
             orderInBook = quote
 
+            # Book Cache Transaction
+            #booktx = [quote.side, quote.price, quote.qty]
+
         return trades, orderInBook
 
     def processList(self, olist, quote, qtyAss):
@@ -197,6 +200,9 @@ class OrderBook(object):
                     tradedQty, tradedPrice,
                     counterparty, quote.id, qtyToTrade
                 ))
+
+            # Book Cache Transaction
+            #booktx = [olist.side, o.price, tradedQty * -1]
 
             # Trade Transaction
             tx = {
@@ -256,6 +262,12 @@ class OrderBook(object):
         else:
             sys.exit('getVolumeAtPrice() given neither bid nor ask')
 
+
+    def dump_book(self):
+        s1 = time()
+        self.bids.dump_book()
+        self.asks.dump_book()
+        print("%.2f ms elapsed." % ((time() - s1) * 1000,))
 
     def __str__(self):
         return str(self)
