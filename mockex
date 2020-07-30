@@ -101,7 +101,7 @@ class Main():
         print(r.fetchone())
         return
         """
-        markets = [m.code for m in db.query(Market).all()] + ['all']
+        markets = [m.code for m in db.query(Market).all()]
 
         parser = argparse.ArgumentParser(description='Mock Exchange')
         parser.add_argument('-v', '--verbose', action='store_true')
@@ -118,7 +118,8 @@ class Main():
             help='Run in loop', metavar='secs')
 
         m_parent = argparse.ArgumentParser(add_help=False)
-        m_parent.add_argument('-m', '--markets', nargs='+', choices=markets,
+        m_parent.add_argument('-m', '--markets', nargs='+',
+            choices=markets + ['all'],
             default=['all'],
             help='Markets')
 
@@ -137,9 +138,12 @@ class Main():
         ohlc_parser = subparsers.add_parser('ohlc',
             parents=[d_parent, m_parent],
             help='Update ohlc cache')
-        events_parser = subparsers.add_parser('events',
+
+        events_parser = subparsers.add_parser('orders',
             parents=[d_parent, m_parent],
-            help='Run events')
+            help='Run order execution')
+        events_parser.add_argument('market', choices=markets)
+
         start_parser = subparsers.add_parser('start',
             parents=[d_parent, m_parent],
             help='Start daemon')
@@ -159,23 +163,11 @@ class Main():
             parser.print_help(sys.stderr)
             sys.exit(1)
 
+        print('args:',args)
         getattr(self, 'cmd_' + args.command)(args)
 
-    def cmd_start(self, args):
-        runner = EventRunner(self.session)
-        ohlc = OHLC(self.session, args)
-
-        while True:
-            # Not filtering by markets - run all.
-            runner.run()
-            ohlc.update_cache()
-            if not args.daemon:
-                break
-            print('Wait %.2f seconds.' % args.daemon)
-            time.sleep(args.daemon)
-
-    def cmd_events(self, args):
-        runner = EventRunner(self.session)
+    def cmd_orders(self, args):
+        runner = EventRunner(self.session, args.market)
         while True:
             runner.run()
             if not args.daemon:
