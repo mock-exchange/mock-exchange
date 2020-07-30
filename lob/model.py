@@ -55,7 +55,7 @@ class Quote(Base):
         Column('side',       str, required=True),
         Column('price',      int, required=False), # Only req for limit
         Column('qty',        int, required=True),
-        Column('account_id', int, required=False),
+        Column('account_id', int, required=True),
     )
 
     __slots__ = [c.name for c in cols]
@@ -82,7 +82,7 @@ class Order(Base):
         Column('id',         int, required=True),
         Column('price',      int, required=True),
         Column('qty',        int, required=True),
-        Column('account_id', int, required=False),
+        Column('account_id', int, required=True),
         Column('in_db',      bool, required=True, default=False),
     )
 
