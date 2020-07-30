@@ -1,45 +1,112 @@
 #!/usr/bin/env python
 
 import argparse
-import sys
-import time
+from time import time, sleep
+
+from sqlalchemy import and_, or_, func
+from sqlalchemy.orm import joinedload
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+import redis
+import lmdb
+
 import config as cfg
-from model import Market
-from lobrunner import OrderBookRunner
+from lob.orderbook import OrderBook, Quote
+from model import Market, Asset, FeeSchedule, Event
+from redis_queue import SimpleQueue
 
-DAEMON_WAIT_SECS = .2
+DAEMON_WAIT_SECS = 1
 
-
-class Main():
+class OrderBookRunner():
     def __init__(self):
         self.engine = create_engine(cfg.DB_CONN)
         db = self.session = Session(self.engine)
+        self.r = redis.from_url(cfg.RQ_CONN)
 
-        markets = [m.code for m in db.query(Market.code).all()]
+        self.markets = {}
+        self.market = None
 
-        parser = argparse.ArgumentParser(description='Next Exchange')
-        parser.add_argument('market', choices=markets)
+        q = db.query(
+            Market
+        ).options(
+            joinedload(Market.asset, innerjoin=True),
+            joinedload(Market.uoa, innerjoin=True)
+        )
+        for m in q.all():
+            self.markets[m.code] = m
+        all_markets = self.markets.keys()
+
+        self.assets = {}
+        for a in db.query(Asset).all():
+            self.assets[a.id] = a
+
+
+        parser = argparse.ArgumentParser(description='Mock Exchange')
+        parser.add_argument('market', choices=all_markets)
         parser.add_argument('-v', '--verbose', action='store_true')
         parser.add_argument('-d', '--daemon', type=float, nargs='?',
             const=DAEMON_WAIT_SECS, help='Run in loop', metavar='secs')
 
         args = parser.parse_args()
 
-        self.run_market(args)
+        self.main(args)
 
-    def run_market(self, args):
-        runner = OrderBookRunner(self.session, args.market)
+    def main(self, args):
+        market = self.market = self.markets[args.market]
+
+        self.trade_file = cfg.CACHE_DIR / market.code / 'trades.log'
+        db_path = str(cfg.CACHE_DIR / market.code / cfg.LOB_LMDB_NAME)
+        self.env = lmdb.open(db_path, max_dbs=3, map_size=cfg.LOB_LMDB_SIZE)
+        self.lob = OrderBook(self.env, self.trade_file)
+
+        # Main loop
         while True:
-            runner.run()
+            self.run()
             if not args.daemon:
                 break
             print('Wait %.2f seconds.' % args.daemon)
-            time.sleep(args.daemon)
+            sleep(args.daemon)
+
+    def run(self):
+        ttime = 0
+        order_cnt = 0
+        trade_cnt = 0
+
+        queue = SimpleQueue(self.r, self.market.code)
+        cnt = 0
+        while queue.get_length() > 0:
+            cnt += 1
+            idnum, method, payload = queue.dequeue()
+            if method == 'add-order':
+                payload['id'] = payload['seq']
+                quote = Quote(payload)
+
+                start = time()
+
+                trades, orderInBook = self.lob.processOrder(quote)
+                self.lob.check_flush()
+
+                order_cnt += 1
+                trade_cnt += len(trades)
+
+                ttime += time() - start
+            elif method == 'cancel-order':
+                pass
+            elif method == 'amend-order':
+                pass
+            else:
+                raise Exception('Invalid method: ' + str(method))
+
+        start = time()
+        self.lob.check_flush()
+        ttime += time() - start
+
+        self.lob.dump_history()
+        print('orders: %-8d trades: %-8d time: %.2f ms   orders/sec:%-8d' % (
+            order_cnt, trade_cnt, ttime, order_cnt / ttime))
 
 
 if __name__ == '__main__':
-    Main()
+    OrderBookRunner()
 
