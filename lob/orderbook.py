@@ -1,3 +1,4 @@
+import os
 import sys
 import math
 from collections import deque
@@ -14,9 +15,9 @@ FLUSH_TIME  = 1      # Number of seconds until flush()
 FLUSH_COUNT = 20000  # Number of orders until flush()
 
 class OrderBook(object):
-    def __init__(self, env, trades_file):
+    def __init__(self, env, trades_dir):
         self.tape = deque(maxlen=None) # Index [0] is most recent trade
-        self.trades_file = trades_file
+        self.trades_dir = trades_dir
 
         self.verbose = False
 
@@ -42,7 +43,7 @@ class OrderBook(object):
     #    pass
 
     # Nanoseconds µs
-    def currentTime(self):
+    def time_ns(self):
         return int(time() * 1000 * 1000)
 
     def check_flush(self):
@@ -63,7 +64,7 @@ class OrderBook(object):
         with self.env.begin(write=True) as txn:
             self.bids.flush(txn)
             self.asks.flush(txn)
-            self.tapeDump(self.trades_file, 'a', 'wipe')
+            self.flush_trades()
             #print('sleep 5 seconds after flush()..')
             #time.sleep(5)
             # write out trades
@@ -73,6 +74,25 @@ class OrderBook(object):
             # I think subsequent trade processing can do these:
             # write out ledgers (do this here?)
             # write out ohlcv? (can trades produce this?)
+
+    def flush_trades(self):
+        if not self.tape:
+            return
+        if not os.path.exists(self.trades_dir):
+            os.mkdir(self.trades_dir)
+        tmpfile = self.trades_dir / '.tmp'
+        permfile = self.trades_dir / str(self.time_ns())
+        with open(tmpfile, 'w') as f:
+            for t in self.tape:
+                a = [str(t[x]) for x in ('time','price','qty','maker','taker')]
+                #out = "%s,%s,%s\n" % (t['time'], t['price'], t['qty'])
+                out = ",".join(a) + "\n"
+                # maker id,side
+                # taker id,side
+                f.write(out)
+
+        os.rename(tmpfile, permfile)
+        self.tape = deque(maxlen=None)
 
     def dump_history(self):
         for i in range(len(self.history)):
@@ -180,16 +200,15 @@ class OrderBook(object):
 
             # Trade Transaction
             tx = {
-                'time'  : self.currentTime(),
+                'time'  : self.time_ns(),
                 'price' : tradedPrice,
-                'qty'   : tradedQty
+                'qty'   : tradedQty,
+                # maker is order, taker is quote
+                #'maker': [olist.side, o.id],
+                #'taker': [quote.side, quote.id],
+                'maker': o.id,
+                'taker': quote.id,
             }
-            if quote.side == 'bid':
-                tx['party1'] = [counterparty, 'bid', o.id]
-                tx['party2'] = [quote.id, 'ask', None]
-            elif quote.side == 'ask':
-                tx['party1'] = [counterparty, 'ask', o.id]
-                tx['party2'] = [quote.id, 'bid', None]
 
             self.tape.append(tx)
             trades.append(tx)
@@ -237,16 +256,6 @@ class OrderBook(object):
         else:
             sys.exit('getVolumeAtPrice() given neither bid nor ask')
 
-
-    def tapeDump(self, fname, fmode, tmode):
-            dumpfile = open(fname, fmode)
-            for tapeitem in self.tape:
-                dumpfile.write('%s,%s,%s\n' % (tapeitem['time'],
-                                                 tapeitem['price'],
-                                                 tapeitem['qty']))
-            dumpfile.close()
-            if tmode == 'wipe':
-                self.tape = deque(maxlen=None)
 
     def __str__(self):
         return str(self)

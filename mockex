@@ -55,10 +55,10 @@ class OrderBookRunner():
     def main(self, args):
         market = self.market = self.markets[args.market]
 
-        self.trade_file = cfg.CACHE_DIR / market.code / 'trades.log'
+        trades_dir = cfg.CACHE_DIR / market.code / 'trades'
         db_path = str(cfg.CACHE_DIR / market.code / cfg.LOB_LMDB_NAME)
-        self.env = lmdb.open(db_path, max_dbs=3, map_size=cfg.LOB_LMDB_SIZE)
-        self.lob = OrderBook(self.env, self.trade_file)
+        env = lmdb.open(db_path, max_dbs=3, map_size=cfg.LOB_LMDB_SIZE)
+        self.lob = OrderBook(env, trades_dir)
 
         # Main loop
         while True:
