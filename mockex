@@ -70,6 +70,7 @@ class OrderBookRunner():
         while True:
             self.run()
             if not args.daemon:
+                self.lob.flush()
                 break
             print('Wait %.2f seconds.' % args.daemon)
             sleep(args.daemon)
