@@ -6,15 +6,20 @@ import os
 from time import time, sleep
 import shortuuid
 
+from decimal import Decimal
+
 from sqlalchemy import and_, or_, func
 from sqlalchemy.orm import joinedload
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import config as cfg
-from model import Market, Asset, FeeSchedule, Trade
+from model import Market, Asset, FeeSchedule, Trade, TradeSide, Ledger
+from ohlc import OHLC
 
 DAEMON_WAIT_SECS = 1
+
+FEE_ACCOUNT_ID = 1
 
 """
 1. read trades dir
@@ -55,6 +60,8 @@ class Trades2Db():
         market = self.market = self.markets[args.market]
         self.trades_dir = cfg.CACHE_DIR / market.code / 'trades'
 
+        self._get_fee_schedule()
+
         # Main loop
         while True:
             s1 = time()
@@ -67,9 +74,11 @@ class Trades2Db():
             sleep(args.daemon)
 
     def run(self):
+        market = self.market
         count = 0
         self.files = []
         self.trades = []
+        self.trade_sides = []
         self.ledgers = []
         for fname in sorted(os.listdir(self.trades_dir)):
             self.files.append(fname)
@@ -87,7 +96,12 @@ class Trades2Db():
                 raise Exception(
                     'no rows in file:'+self.market.code+'/'+fname)
             for row in rows:
-                (time, price, qty, maker, taker) = row
+                (
+                    time, price, qty, taker_side,
+                    maker_order_id, maker_account_id,
+                    taker_order_id, taker_account_id
+                ) = row
+                
                 #print(time,price,qty,maker,taker)
                 ts = int(int(time) / 1000000)
 
@@ -95,17 +109,101 @@ class Trades2Db():
                     uuid        = shortuuid.uuid(),
                     created     = datetime.utcfromtimestamp(ts),
                     market_id   = self.market.id,
-                    price       = price,
-                    amount      = qty,
+                    price       = int(price),
+                    amount      = int(qty),
                 )
+
+                # maker = order_id
+                # taker = order_id
+                # TODO: Determine rate by the 30d volume
+                maker_rate = self._get_fee_rate('trade', 0)[0]
+                taker_rate = self._get_fee_rate('trade', 0)[1]
+
+                # fee comes out of both sides
+                ts = TradeSide(
+                    uuid       = shortuuid.uuid(),
+                    account_id = int(taker_account_id),
+                    trade_uuid = t.uuid,
+                    #order_id   = taker_order_id,
+                    type       = 'taker',
+                    fee_rate   = Decimal(taker_rate),
+                    #amount     = t.amount if o.side == 'bid' else t.total,
+                )
+                ms = TradeSide(
+                    uuid       = shortuuid.uuid(),
+                    account_id = int(maker_account_id),
+                    trade_uuid = t.uuid,
+                    #order_id   = maker_order_id,
+                    type       = 'maker',
+                    fee_rate   = Decimal(maker_rate),
+                    #amount     = t.amount if om.side == 'bid' else t.total,
+                )
+                self.trade_sides.append(ts)
+                self.trade_sides.append(ms)
+                #for x in (t, ts, ms):
+                #    self.session.add(x)
+
+                #buyer_id  = e.account_id if o.side == 'buy' else om.account_id
+                #seller_id = e.account_id if o.side == 'sell' else om.account_id
+                if taker_side == 'bid':
+                    buyer_id = ts.account_id
+                    seller_id = ms.account_id
+                    bside = ts
+                    sside = ms
+                    amt_fee = (t.amount * ts.fee_rate)
+                    total_fee = (t.total * ms.fee_rate)
+                else: # taker_side == 'ask'
+                    buyer_id = ms.account_id
+                    seller_id = ts.account_id
+                    bside = ms
+                    sside = ts
+                    amt_fee = (t.amount * ms.fee_rate)
+                    total_fee = (t.total * ts.fee_rate)
+                """
+                if e.account_id == buyer_id:
+                    bside = ts
+                    sside = ms
+                    amt_fee = (t.amount * ts.fee_rate)
+                    total_fee = (t.total * ms.fee_rate)
+                else:
+                    bside = ms
+                    sside = ts
+                    amt_fee = (t.amount * ms.fee_rate)
+                    total_fee = (t.total * ts.fee_rate)
+                """
+                keys = ['trade_side', 'account_id','asset_id','amount']
+                ledgers = [
+                    (sside, seller_id,      market.asset.id,  t.amount   * -1),
+                    (bside, buyer_id,       market.asset.id,  t.amount - amt_fee),
+                    (None,  FEE_ACCOUNT_ID, market.asset.id,  amt_fee),
+
+                    (bside, buyer_id,       market.uoa.id,    t.total * -1),
+                    (sside, seller_id,      market.uoa.id,    t.total - total_fee),
+                    (None,  FEE_ACCOUNT_ID, market.uoa.id,    total_fee),
+                ]
+
+                # Create ledger entries
+                print('-'*75)
+                for values in ledgers:
+                    l = Ledger(**dict(zip(keys, values)))
+                    l.type = 'trade'
+                    #if l.asset_id in bal and l.account_id in bal[l.asset_id]:
+                    #    l.balance = bal[l.asset_id][l.account_id] + l.amount
+                    self.ledgers.append(l)
+
+                    print("%3d %8d %15.2f" % (
+                        l.asset_id, l.account_id, l.amount))
+
+
                 #foo = dict(t.__dict__)
                 #del foo['_sa_instance_state']
                 #print(foo)
                 self.trades.append(t)
             #print()
-            if len(self.trades) > 1000:
+            if len(self.trades) > 5000:
                 #print('flush..')
                 count += self.flush()
+
 
 
         # End flush
@@ -121,6 +219,8 @@ class Trades2Db():
             s = self.session
             try:
                 s.bulk_save_objects(self.trades)
+                s.bulk_save_objects(self.trade_sides)
+                s.bulk_save_objects(self.ledgers)
                 s.commit()
                 # remove files from disk
                 for fname in self.files:
@@ -136,7 +236,35 @@ class Trades2Db():
             self.files = []
             self.trades = []
             self.ledgers = []
+
+        print('update ohlc cache..')
+        OHLC(self.session).update_cache(self.market)
+
         return count
+
+    def _get_fee_schedule(self):
+        self.sched = {}
+        q = self.session.query(FeeSchedule).order_by(
+            FeeSchedule.type.asc(),
+            FeeSchedule.volume.desc()
+        )
+        for r in q.all():
+            if r.type not in self.sched:
+                self.sched[r.type] = []
+            self.sched[r.type].append({
+                'min': r.volume,
+                'maker': r.maker / 10000,
+                'taker': r.taker / 10000
+            })
+
+    def _get_fee_rate(self, t, value):
+        rates = [None,None]
+        for r in self.sched[t]:
+            rates = [r['maker'], r['taker']]
+            if r['min'] < value:
+                break
+
+        return rates
 
 if __name__ == '__main__':
     Trades2Db()

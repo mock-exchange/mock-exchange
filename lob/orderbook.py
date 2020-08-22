@@ -76,6 +76,12 @@ class OrderBook(object):
             # write out ohlcv? (can trades produce this?)
 
     def flush_trades(self):
+        keys = (
+            'time','price','qty','taker_side',
+            'maker_order_id','maker_account_id',
+            'taker_order_id','taker_account_id'
+        )
+
         if not self.tape:
             return
         if not os.path.exists(self.trades_dir):
@@ -84,12 +90,7 @@ class OrderBook(object):
         permfile = self.trades_dir / str(self.time_ns())
         with open(tmpfile, 'w') as f:
             for t in self.tape:
-                a = [str(t[x]) for x in ('time','price','qty','maker','taker')]
-                #out = "%s,%s,%s\n" % (t['time'], t['price'], t['qty'])
-                out = ",".join(a) + "\n"
-                # maker id,side
-                # taker id,side
-                f.write(out)
+                f.write(",".join([str(t[x]) for x in keys]) + "\n")
 
         os.rename(tmpfile, permfile)
         self.tape = deque(maxlen=None)
@@ -212,8 +213,11 @@ class OrderBook(object):
                 # maker is order, taker is quote
                 #'maker': [olist.side, o.id],
                 #'taker': [quote.side, quote.id],
-                'maker': o.id,
-                'taker': quote.id,
+                'maker_order_id'   : o.id,
+                'maker_account_id' : o.account_id,
+                'taker_order_id'   : quote.id,
+                'taker_account_id' : quote.account_id,
+                'taker_side' : quote.side
             }
 
             self.tape.append(tx)
